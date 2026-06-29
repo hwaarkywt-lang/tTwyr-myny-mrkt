@@ -133,6 +133,31 @@ def create_supplier(payload: SupplierCreate, request: Request,
     return SupplierOut.model_validate(_sup_out(s))
 
 
+@router.get("/suppliers/{supplier_id}")
+def get_supplier(supplier_id: str, db = Depends(get_db), _u = Depends(require_manager)):
+    s = db[C.suppliers].find_one({"_id": supplier_id, "deleted_at": None})
+    if not s:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    total_purchases = sum(
+        p.get("total", 0) for p in db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None})
+    )
+    total_paid = sum(
+        p.get("amount", 0) for p in db[C.supplier_payments].find({"supplier_id": supplier_id})
+    )
+    total_returns = sum(
+        r.get("total", 0) for r in db[C.supplier_returns].find({"supplier_id": supplier_id})
+    )
+    return {
+        "id": s["_id"], "name": s["name"], "phone": s.get("phone"),
+        "email": s.get("email"), "address": s.get("address"),
+        "balance": s.get("balance", 0),
+        "total_purchases": total_purchases,
+        "total_paid": total_paid,
+        "total_returns": total_returns,
+        "created_at": s.get("created_at"),
+    }
+
+
 @router.patch("/suppliers/{supplier_id}", response_model=SupplierOut)
 def update_supplier(supplier_id: str, payload: SupplierUpdate, request: Request,
                     db = Depends(get_db), current = Depends(require_manager)):
