@@ -70,6 +70,35 @@ def create_customer(payload: CustomerCreate, request: Request,
     return CustomerOut.model_validate(_cust_out(c))
 
 
+@router.get("/customers/{customer_id}")
+def get_customer(customer_id: str, db = Depends(get_db), _u = Depends(get_current_user)):
+    c = db[C.customers].find_one({"_id": customer_id, "deleted_at": None})
+    if not c:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    credit_sales = list(db[C.sales].find({"customer_id": customer_id, "payment_method": "credit", "status": {"$ne": "voided"}}))
+    total_credit_purchases = sum(s.get("total", 0) for s in credit_sales)
+    invoice_count = len(credit_sales)
+    total_paid = sum(p.get("amount", 0) for p in db[C.customer_payments].find({"customer_id": customer_id}))
+    # Last activity: max of last sale or payment date
+    last_sale = db[C.sales].find_one({"customer_id": customer_id}, sort=[("created_at", -1)])
+    last_pay = db[C.customer_payments].find_one({"customer_id": customer_id}, sort=[("created_at", -1)])
+    dates = [d.get("created_at") for d in [last_sale, last_pay] if d and d.get("created_at")]
+    last_activity = max(dates) if dates else None
+    return {
+        "id": c["_id"], "full_name": c["full_name"], "phone": c.get("phone"),
+        "email": c.get("email"), "address": c.get("address"),
+        "balance": c.get("balance", 0),
+        "credit_limit": c.get("credit_limit", 0),
+        "loyalty_points": c.get("loyalty_points", 0),
+        "total_credit_purchases": total_credit_purchases,
+        "total_paid": total_paid,
+        "total_returns": 0,
+        "invoice_count": invoice_count,
+        "last_activity_at": last_activity,
+        "created_at": c.get("created_at"),
+    }
+
+
 @router.patch("/customers/{customer_id}", response_model=CustomerOut)
 def update_customer(customer_id: str, payload: CustomerUpdate, request: Request,
                     db = Depends(get_db), current = Depends(get_current_user)):
