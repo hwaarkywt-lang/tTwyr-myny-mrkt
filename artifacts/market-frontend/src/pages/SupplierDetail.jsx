@@ -336,6 +336,7 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [notes, setNotes] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('credit');
   const [saving, setSaving] = useState(false);
   // إضافة منتج جديد inline
   const [newProductOpen, setNewProductOpen] = useState(false);
@@ -347,7 +348,7 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
 
   useEffect(() => {
     if (open) {
-      setItems([]); setNotes(''); setBarcode('');
+      setItems([]); setNotes(''); setBarcode(''); setPaymentMethod('credit');
       reload();
       api.get('/categories').then((r) => setCategories(r.data || [])).catch(() => {});
     }
@@ -431,7 +432,7 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
     try {
       const payload = {
         supplier_id: supplierId, notes: notes || null, paid_amount: 0,
-        payment_method: 'credit',
+        payment_method: paymentMethod,
         items: items.map((it) => it.unit === 'carton' ? ({
           product_id: it.product_id, unit: 'carton',
           cartons: Number(it.cartons), pieces_per_carton: Number(it.pieces_per_carton),
@@ -482,8 +483,21 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
           >
             <PackagePlus className="w-4 h-4 ml-1" /> إضافة منتج جديد
           </Button>
+          <div className="col-span-12 md:col-span-2">
+            <Label className="text-xs mb-1 block">طريقة الدفع</Label>
+            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+              <SelectTrigger className="h-10 w-full" data-testid="purchase-payment-method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="credit">آجل (دين على التاجر)</SelectItem>
+                <SelectItem value="cash">نقداً</SelectItem>
+                <SelectItem value="bank_transfer">تحويل بنكي</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Input value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="ملاحظات..." className="col-span-12 md:col-span-3 h-10" />
+            placeholder="ملاحظات..." className="col-span-12 md:col-span-1 h-10" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
