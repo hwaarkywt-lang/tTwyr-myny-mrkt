@@ -79,6 +79,24 @@ def customer_statement(
             "voided": False,
         })
 
+    # Customer sale returns (مرتجعات)
+    ret_filt = {"customer_id": customer_id, "deleted_at": None}
+    if dt_from:
+        ret_filt["created_at"] = {"$gte": dt_from}
+    if dt_to:
+        ret_filt.setdefault("created_at", {})["$lte"] = dt_to
+    for r in db[C.sale_returns].find(ret_filt).sort("created_at", 1):
+        entries.append({
+            "type": "return",
+            "date": r.get("created_at"),
+            "op_no": r.get("return_no") or r["_id"],
+            "description": "مرتجع مبيعات",
+            "debit": 0.0,
+            "credit": float(r.get("total", 0)),
+            "ref_id": r["_id"],
+            "voided": False,
+        })
+
     entries.sort(key=lambda e: e["date"] or datetime.min.replace(tzinfo=timezone.utc))
 
     balance = 0.0
