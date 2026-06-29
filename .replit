@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "python-3.11"]
 
 [deployment]
 router = "application"
@@ -18,3 +18,17 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+MONGO_URL = "mongodb+srv://admin:admin123@cluster0.9mqfj0f.mongodb.net/?appName=Cluster0"
+DB_NAME = "market_db"
+JWT_SECRET_KEY = "minimarket-super-secret-jwt-key-2026-secure"
+JWT_ALGORITHM = "HS256"
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = "1440"
+CORS_ORIGINS = "*"
+
+[nix]
+channel = "stable-25_05"
+packages = ["cacert", "cargo", "libiconv", "libxcrypt", "openssl", "pkg-config", "rustc"]

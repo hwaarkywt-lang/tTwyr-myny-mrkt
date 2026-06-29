@@ -1,0 +1,10 @@
+/* Print styles for receipts and statements */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body * { visibility: hidden; }
+  .print-only, .print-only * { visibility: visible; }
+  .print-only { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+}
+.print-only { display: none; }
+@media print { .print-only { display: block; } }

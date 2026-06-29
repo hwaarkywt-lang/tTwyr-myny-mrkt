@@ -1,0 +1,385 @@
+// ========================================================
+// Mini Market Management System - Database ERD (DBML)
+// ========================================================
+// HOW TO VIEW: Copy ALL the contents of this file and paste
+// into https://dbdiagram.io  → it will render a full ERD.
+// ========================================================
+
+// ---------- Enums ----------
+Enum user_role {
+  manager
+  cashier
+  inventory_clerk
+  admin
+}
+
+Enum payment_method {
+  cash
+  card
+  bank_transfer
+  credit
+  mixed
+}
+
+Enum sale_status {
+  draft
+  completed
+  refunded
+  partially_refunded
+  voided
+}
+
+Enum movement_type {
+  purchase
+  sale
+  return_in
+  return_out
+  adjustment
+  transfer
+  damage
+  expiry
+}
+
+Enum sync_status {
+  pending
+  in_progress
+  synced
+  failed
+}
+
+Enum shift_status {
+  open
+  closed
+  reconciled
+}
+
+// ---------- Auth & RBAC ----------
+Table users {
+  id uuid [pk]
+  username varchar(50) [unique, not null]
+  email varchar(255) [unique, not null]
+  full_name varchar(120) [not null]
+  password_hash varchar(255) [not null]
+  role user_role [not null, default: 'cashier']
+  phone varchar(30)
+  is_active boolean [default: true]
+  last_login_at timestamptz
+  failed_login_attempts int [default: 0]
+  locked_until timestamptz
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+  created_by uuid [ref: > users.id]
+}
+
+Table roles {
+  id uuid [pk]
+  name varchar(50) [unique, not null]
+  description text
+  created_at timestamptz [default: `now()`]
+}
+
+Table permissions {
+  id uuid [pk]
+  code varchar(80) [unique, not null]
+  description text
+}
+
+Table role_permissions {
+  role_id uuid [ref: > roles.id]
+  permission_id uuid [ref: > permissions.id]
+  indexes { (role_id, permission_id) [pk] }
+}
+
+// ---------- Catalog ----------
+Table categories {
+  id uuid [pk]
+  name varchar(120) [not null]
+  parent_id uuid [ref: > categories.id]
+  description text
+  is_active boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table products {
+  id uuid [pk]
+  sku varchar(80) [unique, not null]
+  name varchar(255) [not null]
+  description text
+  category_id uuid [ref: > categories.id]
+  unit varchar(30) [default: 'piece']
+  cost_price numeric(14,2) [not null, default: 0]
+  sale_price numeric(14,2) [not null, default: 0]
+  tax_rate numeric(5,2) [default: 0]
+  min_stock_level int [default: 0]
+  max_stock_level int
+  has_expiry boolean [default: false]
+  is_active boolean [default: true]
+  image_url varchar(500)
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table barcodes {
+  id uuid [pk]
+  product_id uuid [ref: > products.id, not null]
+  barcode varchar(80) [unique, not null]
+  is_primary boolean [default: false]
+  pack_size int [default: 1]
+}
+
+Table product_batches {
+  id uuid [pk]
+  product_id uuid [ref: > products.id, not null]
+  batch_no varchar(80)
+  expiry_date date
+  manufacturing_date date
+  quantity_on_hand int [default: 0]
+  cost_price numeric(14,2)
+  received_at timestamptz [default: `now()`]
+}
+
+// ---------- Parties ----------
+Table customers {
+  id uuid [pk]
+  code varchar(30) [unique]
+  full_name varchar(120) [not null]
+  phone varchar(30)
+  email varchar(120)
+  address text
+  credit_limit numeric(14,2) [default: 0]
+  balance numeric(14,2) [default: 0]
+  loyalty_points int [default: 0]
+  is_active boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table suppliers {
+  id uuid [pk]
+  code varchar(30) [unique]
+  name varchar(120) [not null]
+  contact_person varchar(120)
+  phone varchar(30)
+  email varchar(120)
+  address text
+  balance numeric(14,2) [default: 0]
+  is_active boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+// ---------- Sales (POS) ----------
+Table shifts {
+  id uuid [pk]
+  cashier_id uuid [ref: > users.id, not null]
+  opened_at timestamptz [default: `now()`]
+  closed_at timestamptz
+  opening_cash numeric(14,2) [default: 0]
+  closing_cash numeric(14,2)
+  expected_cash numeric(14,2)
+  variance numeric(14,2)
+  status shift_status [default: 'open']
+  notes text
+}
+
+Table sales {
+  id uuid [pk]
+  invoice_no varchar(40) [unique, not null]
+  shift_id uuid [ref: > shifts.id]
+  cashier_id uuid [ref: > users.id, not null]
+  customer_id uuid [ref: > customers.id]
+  subtotal numeric(14,2) [not null]
+  discount_amount numeric(14,2) [default: 0]
+  tax_amount numeric(14,2) [default: 0]
+  total numeric(14,2) [not null]
+  paid_amount numeric(14,2) [default: 0]
+  change_amount numeric(14,2) [default: 0]
+  payment_method payment_method [default: 'cash']
+  status sale_status [default: 'completed']
+  notes text
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table sale_items {
+  id uuid [pk]
+  sale_id uuid [ref: > sales.id, not null]
+  product_id uuid [ref: > products.id, not null]
+  batch_id uuid [ref: > product_batches.id]
+  quantity numeric(14,3) [not null]
+  unit_price numeric(14,2) [not null]
+  discount numeric(14,2) [default: 0]
+  tax numeric(14,2) [default: 0]
+  total numeric(14,2) [not null]
+}
+
+Table sale_payments {
+  id uuid [pk]
+  sale_id uuid [ref: > sales.id, not null]
+  method payment_method [not null]
+  amount numeric(14,2) [not null]
+  reference varchar(120)
+  created_at timestamptz [default: `now()`]
+}
+
+// ---------- Purchases ----------
+Table purchases {
+  id uuid [pk]
+  ref_no varchar(40) [unique, not null]
+  supplier_id uuid [ref: > suppliers.id, not null]
+  received_by uuid [ref: > users.id]
+  subtotal numeric(14,2)
+  discount_amount numeric(14,2) [default: 0]
+  tax_amount numeric(14,2) [default: 0]
+  total numeric(14,2)
+  paid_amount numeric(14,2) [default: 0]
+  status varchar(20) [default: 'received']
+  notes text
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table purchase_items {
+  id uuid [pk]
+  purchase_id uuid [ref: > purchases.id, not null]
+  product_id uuid [ref: > products.id, not null]
+  quantity numeric(14,3) [not null]
+  unit_cost numeric(14,2) [not null]
+  expiry_date date
+  batch_no varchar(80)
+  total numeric(14,2)
+}
+
+// ---------- Returns ----------
+Table sale_returns {
+  id uuid [pk]
+  sale_id uuid [ref: > sales.id, not null]
+  cashier_id uuid [ref: > users.id]
+  reason text
+  total numeric(14,2)
+  created_at timestamptz [default: `now()`]
+}
+
+Table sale_return_items {
+  id uuid [pk]
+  sale_return_id uuid [ref: > sale_returns.id, not null]
+  sale_item_id uuid [ref: > sale_items.id]
+  product_id uuid [ref: > products.id, not null]
+  quantity numeric(14,3) [not null]
+  refund_amount numeric(14,2) [not null]
+}
+
+// ---------- Inventory ----------
+Table inventory_movements {
+  id uuid [pk]
+  product_id uuid [ref: > products.id, not null]
+  batch_id uuid [ref: > product_batches.id]
+  movement_type movement_type [not null]
+  quantity numeric(14,3) [not null]
+  reference_table varchar(40)
+  reference_id uuid
+  user_id uuid [ref: > users.id]
+  notes text
+  created_at timestamptz [default: `now()`]
+}
+
+Table stock_audits {
+  id uuid [pk]
+  audit_no varchar(40) [unique]
+  performed_by uuid [ref: > users.id]
+  started_at timestamptz [default: `now()`]
+  closed_at timestamptz
+  status varchar(20) [default: 'open']
+  notes text
+}
+
+Table stock_audit_items {
+  id uuid [pk]
+  audit_id uuid [ref: > stock_audits.id, not null]
+  product_id uuid [ref: > products.id, not null]
+  expected_qty numeric(14,3)
+  counted_qty numeric(14,3)
+  variance numeric(14,3)
+}
+
+// ---------- Expenses ----------
+Table expense_categories {
+  id uuid [pk]
+  name varchar(80) [unique, not null]
+  description text
+}
+
+Table expenses {
+  id uuid [pk]
+  category_id uuid [ref: > expense_categories.id]
+  amount numeric(14,2) [not null]
+  description text
+  paid_to varchar(120)
+  payment_method payment_method [default: 'cash']
+  expense_date date [default: `now()`]
+  created_by uuid [ref: > users.id]
+  created_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+// ---------- System ----------
+Table audit_logs {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  action varchar(80) [not null]
+  entity varchar(60)
+  entity_id uuid
+  before_data jsonb
+  after_data jsonb
+  ip_address varchar(45)
+  user_agent text
+  created_at timestamptz [default: `now()`]
+}
+
+Table sync_queue {
+  id uuid [pk]
+  device_id varchar(80)
+  entity varchar(60) [not null]
+  entity_id uuid
+  operation varchar(20) [not null]
+  payload jsonb [not null]
+  status sync_status [default: 'pending']
+  attempts int [default: 0]
+  last_error text
+  created_at timestamptz [default: `now()`]
+  synced_at timestamptz
+}
+
+Table notifications {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  title varchar(160)
+  body text
+  type varchar(40)
+  is_read boolean [default: false]
+  created_at timestamptz [default: `now()`]
+}
+
+Table settings {
+  id uuid [pk]
+  key varchar(80) [unique, not null]
+  value jsonb
+  description text
+  updated_at timestamptz [default: `now()`]
+}
+
+Table devices {
+  id uuid [pk]
+  device_id varchar(80) [unique, not null]
+  name varchar(120)
+  last_seen_at timestamptz
+  is_active boolean [default: true]
+}
