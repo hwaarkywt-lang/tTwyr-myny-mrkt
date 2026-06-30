@@ -13,6 +13,7 @@ paths = ["/api"]
 run = "bash /home/runner/workspace/market-backend/run.sh"
 
 [services.production]
+run = "bash /home/runner/workspace/market-backend/run_prod.sh"
 
 [services.production.health.startup]
 path = "/api/health"
