@@ -176,10 +176,14 @@ def get_supplier(supplier_id: str, db = Depends(get_db), _u = Depends(require_ma
     total_returns = sum(
         r.get("total", 0) for r in db[C.supplier_returns].find({"supplier_id": supplier_id})
     )
+    # الرصيد المحاسبي الصحيح من منظور حساب المورد:
+    # موجب → المورد مدين للشركة (دفعنا أكثر من الفواتير)
+    # سالب → الشركة مدينة للمورد (فواتير غير مسددة)
+    computed_balance = (total_paid + total_returns) - total_purchases
     return {
         "id": s["_id"], "name": s["name"], "phone": s.get("phone"),
         "email": s.get("email"), "address": s.get("address"),
-        "balance": s.get("balance", 0),
+        "balance": computed_balance,
         "total_purchases": total_purchases,
         "total_paid": total_paid,
         "total_returns": total_returns,

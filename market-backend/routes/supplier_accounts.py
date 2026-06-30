@@ -33,29 +33,35 @@ def supplier_statement(supplier_id: str, db=Depends(get_db), _u=Depends(require_
 
     entries = []
 
+    # فاتورة توريد → دائن في حساب المورد (الشركة مدينة للمورد)
     for p in db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None}).sort("created_at", 1):
         entries.append({
             "type": "purchase", "date": p.get("created_at"),
             "op_no": p.get("ref_no") or p.get("invoice_no") or p["_id"],
-            "debit": float(p.get("total", 0)), "credit": 0.0,
+            "debit": 0.0, "credit": float(p.get("total", 0)),
         })
 
+    # سند صرف → مدين في حساب المورد (تخفيض الدين على المورد)
     for p in db[C.supplier_payments].find({"supplier_id": supplier_id}).sort("created_at", 1):
         entries.append({
             "type": "payment", "date": p.get("created_at"),
             "op_no": p.get("voucher_no") or p["_id"],
-            "debit": 0.0, "credit": float(p.get("amount", 0)),
+            "debit": float(p.get("amount", 0)), "credit": 0.0,
         })
 
+    # مرتجع للتاجر → مدين في حساب المورد (المورد يُلزَم برد المبلغ)
     for r in db[C.supplier_returns].find({"supplier_id": supplier_id}).sort("created_at", 1):
         entries.append({
             "type": "return", "date": r.get("created_at"),
             "op_no": r.get("voucher_no") or r["_id"],
-            "debit": 0.0, "credit": float(r.get("total", 0)),
+            "debit": float(r.get("total", 0)), "credit": 0.0,
         })
 
     entries.sort(key=lambda e: e["date"] or datetime.min.replace(tzinfo=timezone.utc))
 
+    # الرصيد = مدين - دائن
+    # موجب → المورد مدين للشركة (دفعنا أكثر من الفواتير)
+    # سالب → الشركة مدينة للمورد (فواتير أكثر من المدفوع)
     balance = 0.0
     for e in entries:
         balance += e["debit"] - e["credit"]

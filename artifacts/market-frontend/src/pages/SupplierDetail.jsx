@@ -26,6 +26,16 @@ const typeMeta = {
   return:   { color: 'bg-orange-50 text-orange-700 border-orange-200',    label: 'استرجاع للتاجر' },
 };
 
+// نوع الرصيد المحاسبي لحساب المورد
+// موجب = المورد مدين للشركة (دفعنا أكثر)
+// سالب = الشركة مدينة للمورد (فواتير مستحقة)
+const balanceLabel = (b) => {
+  const abs = Math.abs(Number(b));
+  if (abs < 0.01) return { text: 'صفر', color: 'text-slate-600' };
+  if (Number(b) > 0) return { text: `${fmt(abs)} ر.ي مدين`, color: 'text-emerald-700' };
+  return { text: `${fmt(abs)} ر.ي دائن`, color: 'text-rose-700' };
+};
+
 const SupplierDetail = () => {
   const { id } = useParams();
   const [detail, setDetail] = useState(null);
@@ -81,9 +91,10 @@ const SupplierDetail = () => {
           </Button>
           <Button onClick={() => {
             const entries = (statement?.entries || []).map(e => ({ ...e, balance: e.running_balance ?? e.balance }));
-            const totalPurchases = entries.filter(e => e.type === 'purchase').reduce((s, e) => s + Number(e.debit || 0), 0);
-            const totalPaid = entries.filter(e => e.type === 'payment').reduce((s, e) => s + Number(e.credit || 0), 0);
-            const totalReturns = entries.filter(e => e.type === 'return').reduce((s, e) => s + Number(e.credit || 0), 0);
+            // فواتير التوريد الآن في عمود الدائن، والمدفوعات/المرتجعات في عمود المدين
+            const totalPurchases = entries.filter(e => e.type === 'purchase').reduce((s, e) => s + Number(e.credit || 0), 0);
+            const totalPaid = entries.filter(e => e.type === 'payment').reduce((s, e) => s + Number(e.debit || 0), 0);
+            const totalReturns = entries.filter(e => e.type === 'return').reduce((s, e) => s + Number(e.debit || 0), 0);
             exportStatementPDF({
               title: 'كشف حساب تاجر',
               kind: 'supplier',
@@ -109,25 +120,35 @@ const SupplierDetail = () => {
       </div>
 
       {/* Stats cards */}
-      <div className="no-print grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {[
+      {(() => {
+        const bal = Number(detail.balance);
+        const balIsDebt = bal < 0;   // الشركة مدينة للمورد = دائن للمورد
+        const balIsOwed = bal > 0;   // المورد مدين للشركة = مدين للشركة
+        const balColor = balIsDebt ? 'from-rose-600 to-pink-700' : balIsOwed ? 'from-emerald-600 to-teal-700' : 'from-slate-500 to-slate-600';
+        const balLabel = balIsDebt ? `${fmt(Math.abs(bal))} ر.ي دائن` : balIsOwed ? `${fmt(bal)} ر.ي مدين` : 'صفر';
+        const cards = [
           { l: 'إجمالي فواتير التوريد', v: fmt(detail.total_purchases) + ' ر.ي', color: 'from-rose-500 to-rose-600', icon: TrendingUp, t: 'stat-purchases' },
           { l: 'إجمالي المدفوع', v: fmt(detail.total_paid) + ' ر.ي', color: 'from-emerald-500 to-emerald-600', icon: TrendingDown, t: 'stat-paid' },
           { l: 'إجمالي الاسترجاع', v: fmt(detail.total_returns) + ' ر.ي', color: 'from-orange-500 to-orange-600', icon: RotateCcw, t: 'stat-returns' },
-          { l: 'الرصيد الحالي', v: fmt(detail.balance) + ' ر.ي', color: Number(detail.balance) > 0 ? 'from-rose-600 to-pink-700' : 'from-emerald-600 to-teal-700', icon: Wallet, t: 'stat-balance' },
-        ].map((s) => {
-          const Icon = s.icon;
-          return (
-            <Card key={s.l} className="overflow-hidden border-0 shadow-md">
-              <div className={`bg-gradient-to-br ${s.color} p-4 text-white`}>
-                <Icon className="w-5 h-5 mb-2 opacity-90" />
-                <p className="text-white/80 text-xs">{s.l}</p>
-                <p className="text-lg font-bold mt-1" data-testid={s.t}>{s.v}</p>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+          { l: 'الرصيد الحالي', v: balLabel, color: balColor, icon: Wallet, t: 'stat-balance' },
+        ];
+        return (
+          <div className="no-print grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {cards.map((s) => {
+              const Icon = s.icon;
+              return (
+                <Card key={s.l} className="overflow-hidden border-0 shadow-md">
+                  <div className={`bg-gradient-to-br ${s.color} p-4 text-white`}>
+                    <Icon className="w-5 h-5 mb-2 opacity-90" />
+                    <p className="text-white/80 text-xs">{s.l}</p>
+                    <p className="text-lg font-bold mt-1" data-testid={s.t}>{s.v}</p>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Tabs */}
       <div className="no-print flex gap-2 mb-4 flex-wrap">
@@ -168,25 +189,28 @@ const SupplierDetail = () => {
                 )}
                 {statement.entries.map((e, i) => {
                   const m = typeMeta[e.type];
+                  const bl = balanceLabel(e.balance);
                   return (
                     <tr key={e.op_no || e.id || `entry-${i}`} className="border-t hover:bg-slate-50" data-testid={`sup-row-${e.op_no}`}>
                       <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{fmtDate(e.date)}</td>
                       <td className="px-3 py-2 font-mono text-xs">{e.op_no}</td>
                       <td className="px-3 py-2"><Badge className={`${m?.color}`}>{m?.label}</Badge></td>
-                      <td className={`px-3 py-2 font-semibold ${e.debit > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                      {/* مدين: سند صرف أو مرتجع */}
+                      <td className={`px-3 py-2 font-semibold ${e.debit > 0 ? 'text-emerald-600' : 'text-slate-300'}`}>
                         {e.debit > 0 ? `${fmt(e.debit)} ر.ي` : '—'}
                       </td>
-                      <td className={`px-3 py-2 font-semibold ${e.credit > 0 && e.type === 'payment' ? 'text-emerald-600' : e.credit > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+                      {/* دائن: فاتورة توريد */}
+                      <td className={`px-3 py-2 font-semibold ${e.credit > 0 ? 'text-rose-600' : 'text-slate-300'}`}>
                         {e.credit > 0 ? `${fmt(e.credit)} ر.ي` : '—'}
                       </td>
-                      <td className="px-3 py-2 font-bold">{fmt(e.balance)} ر.ي</td>
+                      <td className={`px-3 py-2 font-bold ${bl.color}`}>{bl.text}</td>
                     </tr>
                   );
                 })}
                 <tr className="bg-slate-100 border-t-2 font-bold">
                   <td colSpan="5" className="px-3 py-3">الرصيد الختامي</td>
-                  <td className={`px-3 py-3 text-lg ${statement.closing_balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                    {fmt(statement.closing_balance)} ر.ي
+                  <td className={`px-3 py-3 text-lg ${balanceLabel(statement.closing_balance).color}`}>
+                    {balanceLabel(statement.closing_balance).text}
                   </td>
                 </tr>
               </tbody>
