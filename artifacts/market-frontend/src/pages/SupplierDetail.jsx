@@ -26,14 +26,14 @@ const typeMeta = {
   return:   { color: 'bg-orange-50 text-orange-700 border-orange-200',    label: 'استرجاع للتاجر' },
 };
 
-// نوع الرصيد المحاسبي لحساب المورد
-// موجب = المورد مدين للشركة (دفعنا أكثر)
-// سالب = الشركة مدينة للمورد (فواتير مستحقة)
+// نوع الرصيد المحاسبي لحساب المورد (المعادلة: دائن - مدين)
+// موجب = الشركة مدينة للمورد (فواتير > مدفوع) = دائن = متبقي للتاجر
+// سالب = دفعنا أكثر من الفواتير = مدين للشركة
 const balanceLabel = (b) => {
   const abs = Math.abs(Number(b));
   if (abs < 0.01) return { text: 'صفر', color: 'text-slate-600' };
-  if (Number(b) > 0) return { text: `${fmt(abs)} ر.ي مدين`, color: 'text-emerald-700' };
-  return { text: `${fmt(abs)} ر.ي دائن`, color: 'text-rose-700' };
+  if (Number(b) > 0) return { text: `${fmt(abs)} ر.ي دائن`, color: 'text-rose-700' };
+  return { text: `${fmt(abs)} ر.ي مدين`, color: 'text-emerald-700' };
 };
 
 const SupplierDetail = () => {
@@ -121,16 +121,15 @@ const SupplierDetail = () => {
 
       {/* Stats cards */}
       {(() => {
-        const bal = Number(detail.balance);
-        const balIsDebt = bal < 0;   // الشركة مدينة للمورد = دائن للمورد
-        const balIsOwed = bal > 0;   // المورد مدين للشركة = مدين للشركة
-        const balColor = balIsDebt ? 'from-rose-600 to-pink-700' : balIsOwed ? 'from-emerald-600 to-teal-700' : 'from-slate-500 to-slate-600';
-        const balLabel = balIsDebt ? `${fmt(Math.abs(bal))} ر.ي دائن` : balIsOwed ? `${fmt(bal)} ر.ي مدين` : 'صفر';
+        // الرصيد = دائن تراكمي - مدين تراكمي → موجب = متبقي للتاجر
+        const closing = statement ? Number(statement.closing_balance) : Number(detail.balance);
+        const balAbs = Math.abs(closing);
+        const balLabel = balAbs < 0.01 ? 'صفر' : closing > 0 ? `${fmt(closing)} ر.ي` : `${fmt(balAbs)} ر.ي (مدفوع زيادة)`;
         const cards = [
-          { l: 'إجمالي فواتير التوريد', v: fmt(detail.total_purchases) + ' ر.ي', color: 'from-rose-500 to-rose-600', icon: TrendingUp, t: 'stat-purchases' },
+          { l: 'إجمالي فواتير التوريد', v: fmt(detail.total_purchases) + ' ر.ي', color: 'from-blue-500 to-blue-600', icon: TrendingUp, t: 'stat-purchases' },
           { l: 'إجمالي المدفوع', v: fmt(detail.total_paid) + ' ر.ي', color: 'from-emerald-500 to-emerald-600', icon: TrendingDown, t: 'stat-paid' },
           { l: 'إجمالي الاسترجاع', v: fmt(detail.total_returns) + ' ر.ي', color: 'from-orange-500 to-orange-600', icon: RotateCcw, t: 'stat-returns' },
-          { l: 'الرصيد الحالي', v: balLabel, color: balColor, icon: Wallet, t: 'stat-balance' },
+          { l: 'إجمالي المتبقي للتاجر', v: balLabel, color: 'from-rose-600 to-rose-700', icon: Wallet, t: 'stat-balance' },
         ];
         return (
           <div className="no-print grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

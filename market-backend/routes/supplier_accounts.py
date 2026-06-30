@@ -59,12 +59,12 @@ def supplier_statement(supplier_id: str, db=Depends(get_db), _u=Depends(require_
 
     entries.sort(key=lambda e: e["date"] or datetime.min.replace(tzinfo=timezone.utc))
 
-    # الرصيد = مدين - دائن
-    # موجب → المورد مدين للشركة (دفعنا أكثر من الفواتير)
-    # سالب → الشركة مدينة للمورد (فواتير أكثر من المدفوع)
+    # الرصيد = دائن تراكمي - مدين تراكمي
+    # موجب → الشركة مدينة للمورد (فواتير أكثر من المدفوع) = متبقي للتاجر
+    # سالب → دفعنا أكثر من الفواتير (نادر)
     balance = 0.0
     for e in entries:
-        balance += e["debit"] - e["credit"]
+        balance += e["credit"] - e["debit"]
         e["balance"] = balance
 
     return {
