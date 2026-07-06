@@ -248,9 +248,13 @@ def manager_dashboard(db = Depends(get_db), _u = Depends(require_manager)):
                                         {"_id": 1, "full_name": 1, "balance": 1})],
         key=lambda x: x["balance"], reverse=True,
     )[:10]
+    customers_total_debt = round(sum(c["balance"] for c in top_debtors), 2)
     customers = {
         "count": db[C.customers].count_documents({"deleted_at": None}),
-        "balance_total": sum(c["balance"] for c in top_debtors),
+        "balance_total": customers_total_debt,
+        # aliases expected by ManagerDashboard.jsx
+        "total_debt": customers_total_debt,
+        "debtors_count": len(top_debtors),
         "top_debtors": top_debtors,
     }
     top_suppliers = sorted(
@@ -259,9 +263,13 @@ def manager_dashboard(db = Depends(get_db), _u = Depends(require_manager)):
                                         {"_id": 1, "name": 1, "balance": 1})],
         key=lambda x: x["balance"], reverse=True,
     )[:10]
+    suppliers_total_due = round(sum(s["balance"] for s in top_suppliers), 2)
     suppliers = {
         "count": db[C.suppliers].count_documents({"deleted_at": None}),
-        "balance_total": sum(s["balance"] for s in top_suppliers),
+        "balance_total": suppliers_total_due,
+        # aliases expected by ManagerDashboard.jsx
+        "total_due": suppliers_total_due,
+        "due_count": len(top_suppliers),
         "top_suppliers": top_suppliers,
     }
     # Top selling / top profit / least selling for ManagerDashboard product lists

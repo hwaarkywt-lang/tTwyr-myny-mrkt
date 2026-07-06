@@ -1,0 +1,3 @@
+- [MiniMarket MongoDB setup](minimarket-mongodb.md) — Atlas creds wrong; ALLOW_MONGOMOCK=true gates in-memory fallback for dev/demo
+- [MiniMarket auth credentials](minimarket-auth.md) — admin login is admin / Admin@2026 (seeded on startup)
+- [MiniMarket backend gaps fixed](minimarket-backend-gaps.md) — returns workflow, day-close POST, dashboard field aliases, Vite proxy

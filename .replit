@@ -29,6 +29,7 @@ JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = "1440"
 CORS_ORIGINS = "*"
 SECRET_KEY = "minimarket-super-secret-jwt-key-2026-secure"
+ALLOW_MONGOMOCK = "true"
 
 [nix]
 channel = "stable-25_05"
