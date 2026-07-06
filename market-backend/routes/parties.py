@@ -167,8 +167,19 @@ def get_supplier(supplier_id: str, db = Depends(get_db), _u = Depends(require_ma
     s = db[C.suppliers].find_one({"_id": supplier_id, "deleted_at": None})
     if not s:
         raise HTTPException(status_code=404, detail="Supplier not found")
-    total_purchases = sum(
-        p.get("total", 0) for p in db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None})
+
+    # إجمالي جميع المشتريات (للعرض فقط)
+    all_purchases = list(db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None}))
+    total_purchases_all = sum(p.get("total", 0) for p in all_purchases)
+
+    # الرصيد المستحق الصحيح:
+    # نحسب فقط المشتريات الآجلة (credit) لأن النقدي يُسدَّد فوراً
+    # المديونية = مجموع (إجمالي فاتورة - المدفوع عند الإنشاء) للمشتريات الآجلة فقط
+    # ثم نطرح منها: المدفوعات اللاحقة + المرتجعات
+    total_credit_unpaid = sum(
+        float(p.get("total", 0)) - float(p.get("paid_amount", 0))
+        for p in all_purchases
+        if p.get("payment_method", "credit") == "credit"
     )
     total_paid = sum(
         p.get("amount", 0) for p in db[C.supplier_payments].find({"supplier_id": supplier_id})
@@ -176,15 +187,16 @@ def get_supplier(supplier_id: str, db = Depends(get_db), _u = Depends(require_ma
     total_returns = sum(
         r.get("total", 0) for r in db[C.supplier_returns].find({"supplier_id": supplier_id})
     )
-    # الرصيد المحاسبي الصحيح من منظور حساب المورد:
-    # موجب → المورد مدين للشركة (دفعنا أكثر من الفواتير)
-    # سالب → الشركة مدينة للمورد (فواتير غير مسددة)
-    computed_balance = (total_paid + total_returns) - total_purchases
+    # الرصيد المستحق للتاجر:
+    # موجب  = نحن مدينون للتاجر (فواتير آجلة غير مسددة)
+    # سالب  = دفعنا أكثر مما علينا (رصيد دائن للشركة عند التاجر)
+    computed_balance = total_credit_unpaid - total_paid - total_returns
+
     return {
         "id": s["_id"], "name": s["name"], "phone": s.get("phone"),
         "email": s.get("email"), "address": s.get("address"),
         "balance": computed_balance,
-        "total_purchases": total_purchases,
+        "total_purchases": total_purchases_all,
         "total_paid": total_paid,
         "total_returns": total_returns,
         "created_at": s.get("created_at"),

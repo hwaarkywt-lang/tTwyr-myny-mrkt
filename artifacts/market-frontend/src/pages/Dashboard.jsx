@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ShoppingCart, Package, AlertTriangle, Users, DollarSign,
-  TrendingUp, Receipt, Truck, Wallet, ArrowUpRight, PackagePlus,
-  CalendarX,
+  ShoppingCart, AlertTriangle, Users, DollarSign,
+  TrendingUp, Receipt, Truck, Wallet, CalendarX,
+  Banknote, Clock,
 } from 'lucide-react';
 import { Card, CardContent } from '../components/ui/card';
 import api from '../lib/api';
@@ -18,36 +18,80 @@ const Dashboard = () => {
   const [expiry, setExpiry] = useState(null);
   const { user } = useAuth();
   const canViewPurchases = user?.role !== 'cashier';
+  const isCashier = user?.role === 'cashier';
 
   useEffect(() => {
     api.get('/dashboard/summary')
       .then((r) => setSummary(r.data))
       .finally(() => setLoading(false));
-    if (user?.role !== 'cashier') {
+    if (!isCashier) {
       api.get('/products/expiry-report', { params: { days: 90 } })
         .then((r) => setExpiry(r.data))
         .catch(() => {});
     }
   }, [user]);
 
+  // بطاقات الإحصاء الرئيسية - بدون أي ذكر للمخزون
   const stats = [
-    { label: 'مبيعات اليوم', value: formatMoney(summary?.sales_today), icon: DollarSign, gradient: 'from-emerald-500 to-teal-600', testId: 'stat-sales-today' },
-    { label: 'فواتير اليوم', value: formatNum(summary?.invoices_today), icon: Receipt, gradient: 'from-blue-500 to-indigo-600', testId: 'stat-invoices-today' },
-    { label: 'مبيعات الشهر', value: formatMoney(summary?.sales_month), icon: TrendingUp, gradient: 'from-amber-500 to-orange-600', testId: 'stat-sales-month' },
+    {
+      label: 'مبيعات اليوم (الإجمالي)',
+      value: formatMoney(summary?.sales_today),
+      icon: DollarSign,
+      gradient: 'from-emerald-500 to-teal-600',
+      testId: 'stat-sales-today',
+    },
+    {
+      label: 'مبيعات اليوم النقدية',
+      value: formatMoney(summary?.sales_today_cash),
+      icon: Banknote,
+      gradient: 'from-green-500 to-emerald-600',
+      testId: 'stat-sales-today-cash',
+    },
+    {
+      label: 'مبيعات اليوم الآجلة',
+      value: formatMoney(summary?.sales_today_credit),
+      icon: Clock,
+      gradient: 'from-rose-500 to-rose-600',
+      testId: 'stat-sales-today-credit',
+    },
+    {
+      label: 'مبيعات الشهر',
+      value: formatMoney(summary?.sales_month),
+      icon: TrendingUp,
+      gradient: 'from-amber-500 to-orange-600',
+      testId: 'stat-sales-month',
+    },
+    {
+      label: 'فواتير اليوم',
+      value: formatNum(summary?.invoices_today),
+      icon: Receipt,
+      gradient: 'from-blue-500 to-indigo-600',
+      testId: 'stat-invoices-today',
+    },
+    {
+      label: 'عدد العملاء',
+      value: formatNum(summary?.customers_count),
+      icon: Users,
+      gradient: 'from-purple-500 to-purple-600',
+      testId: 'stat-customers',
+    },
   ];
 
+  // بطاقات الوحدات — بدون بطاقة المنتجات (لا يعرض المشرف إجمالي المنتجات)
   const cards = [
     { title: 'نقطة البيع (POS)', desc: 'بدء فاتورة جديدة بسرعة فائقة', icon: ShoppingCart, link: '/dashboard/pos', color: 'amber' },
-    { title: 'المنتجات', desc: `${formatNum(summary?.products_count)} منتج`, icon: Package, link: '/dashboard/products', color: 'blue' },
     { title: 'مخزون منخفض', desc: `${formatNum(summary?.low_stock_count)} منتج يحتاج تجديد`, icon: AlertTriangle, link: '/dashboard/products?lowStock=1', color: 'red' },
     { title: 'العملاء', desc: `${formatNum(summary?.customers_count)} عميل مسجّل`, icon: Users, link: '/dashboard/customers', color: 'emerald' },
-    { title: 'الموردون', desc: `${formatNum(summary?.suppliers_count)} مورد مسجّل`, icon: Truck, link: '/dashboard/purchases', color: 'purple' },
     { title: 'المصروفات', desc: `${formatMoney(summary?.expenses_month)} هذا الشهر`, icon: Wallet, link: '/dashboard/expenses', color: 'pink' },
   ];
 
+  // الموردون والمشتريات متاحون فقط للمدير وليس للكاشير
+  if (canViewPurchases) {
+    cards.push({ title: 'الموردون', desc: `${formatNum(summary?.suppliers_count)} مورد مسجّل`, icon: Truck, link: '/dashboard/purchases', color: 'purple' });
+  }
+
   const colorMap = {
     amber: 'from-amber-50 to-amber-100 border-amber-200 text-amber-700',
-    blue: 'from-blue-50 to-blue-100 border-blue-200 text-blue-700',
     red: 'from-red-50 to-red-100 border-red-200 text-red-700',
     emerald: 'from-emerald-50 to-emerald-100 border-emerald-200 text-emerald-700',
     purple: 'from-purple-50 to-purple-100 border-purple-200 text-purple-700',
@@ -58,10 +102,10 @@ const Dashboard = () => {
     <div className="p-6 lg:p-8" dir="rtl" data-testid="dashboard-page">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900 mb-1">لوحة التحكم</h1>
-        <p className="text-slate-500">نظرة شاملة على أداء الميني ماركت</p>
+        <p className="text-slate-500">نظرة شاملة على أداء المبيعات اليوم</p>
       </div>
 
-      {/* Top Stats */}
+      {/* بطاقات الإحصاء — بدون أي ذكر للمخزون */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         {stats.map((s) => {
           const Icon = s.icon;
@@ -81,7 +125,7 @@ const Dashboard = () => {
         })}
       </div>
 
-      {/* Purchases Stats (Admin + Manager only) */}
+      {/* تنبيهات تواريخ الصلاحية — للمدير فقط */}
       {canViewPurchases && expiry && (expiry.expired_count > 0 || (expiry.soon || []).some((p) => p.severity === 'critical' || p.severity === 'warning')) && (
         <div className="mb-6" data-testid="expiry-alert-card">
           <div className="bg-gradient-to-br from-rose-50 to-amber-50 border-2 border-rose-300 rounded-xl p-4 shadow-md">
@@ -127,92 +171,31 @@ const Dashboard = () => {
                 );
               })()}
             </div>
-            {expiry.expired && expiry.expired.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-rose-200">
-                <p className="text-xs text-rose-700 font-semibold mb-1.5">منتجات منتهية الصلاحية (ممنوع بيعها):</p>
-                <ul className="text-xs space-y-0.5">
-                  {expiry.expired.slice(0, 3).map((p) => (
-                    <li key={p.id} className="text-rose-700">
-                      • {p.name} <span className="text-rose-500">({p.expiry_date} - منذ {Math.abs(p.days_left)} يوم)</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      {/* Purchases Stats (Admin + Manager only) */}
-      {canViewPurchases && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8" data-testid="purchases-stats-row">
-          {/* Today */}
-          <Card className="overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all" data-testid="card-purchases-today">
-            <CardContent className="p-0">
-              <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 text-white">
-                <div className="flex items-center justify-between mb-3">
-                  <Truck className="h-7 w-7 opacity-90" />
-                  <Link to="/dashboard/reports" className="text-xs underline opacity-90 hover:opacity-100" data-testid="link-purchases-report-today">
-                    عرض تقرير المشتريات →
-                  </Link>
-                </div>
-                <p className="text-white/80 text-sm mb-1">إجمالي مشتريات اليوم</p>
-                <p className="text-3xl font-extrabold mb-3" data-testid="stat-purchases-today-total">
-                  {loading ? '...' : formatMoney(summary?.purchases_today_total)}
-                </p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="bg-white/10 rounded-lg px-3 py-2">
-                    <p className="text-white/70">عدد فواتير اليوم</p>
-                    <p className="text-base font-bold" data-testid="stat-purchases-today-count">
-                      {formatNum(summary?.purchases_today_count)}
-                    </p>
-                  </div>
-                  <div className="bg-white/10 rounded-lg px-3 py-2">
-                    <p className="text-white/70">منتجات أُضيفت اليوم</p>
-                    <p className="text-base font-bold" data-testid="stat-products-added-today">
-                      {formatNum(summary?.products_added_today)}
-                    </p>
-                  </div>
-                </div>
+      {/* تنبيه المخزون المنخفض فقط — بدون عرض إجمالي المنتجات */}
+      {summary?.low_stock_count > 0 && (
+        <div className="mb-6">
+          <Link to="/dashboard/products?lowStock=1">
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-4 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
+              <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-6 h-6 text-white" />
               </div>
-            </CardContent>
-          </Card>
-
-          {/* This Month */}
-          <Card className="overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all" data-testid="card-purchases-month">
-            <CardContent className="p-0">
-              <div className="bg-gradient-to-br from-fuchsia-600 to-purple-700 p-6 text-white">
-                <div className="flex items-center justify-between mb-3">
-                  <PackagePlus className="h-7 w-7 opacity-90" />
-                  <Link to="/dashboard/reports" className="text-xs underline opacity-90 hover:opacity-100" data-testid="link-purchases-report-month">
-                    عرض تقرير الشهر →
-                  </Link>
-                </div>
-                <p className="text-white/80 text-sm mb-1">إجمالي مشتريات الشهر</p>
-                <p className="text-3xl font-extrabold mb-3" data-testid="stat-purchases-month-total">
-                  {loading ? '...' : formatMoney(summary?.purchases_month_total)}
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-amber-900">تنبيه مخزون منخفض</h3>
+                <p className="text-sm text-amber-700">
+                  يوجد <strong>{formatNum(summary?.low_stock_count)}</strong> منتج يحتاج إلى تجديد المخزون
                 </p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="bg-white/10 rounded-lg px-3 py-2">
-                    <p className="text-white/70">فواتير الشهر</p>
-                    <p className="text-base font-bold" data-testid="stat-purchases-month-count">
-                      {formatNum(summary?.purchases_month_count)}
-                    </p>
-                  </div>
-                  <div className="bg-white/10 rounded-lg px-3 py-2">
-                    <p className="text-white/70">منتجات الشهر</p>
-                    <p className="text-base font-bold" data-testid="stat-products-added-month">
-                      {formatNum(summary?.products_added_month)}
-                    </p>
-                  </div>
-                </div>
               </div>
-            </CardContent>
-          </Card>
+              <span className="text-amber-600 text-sm underline">عرض ←</span>
+            </div>
+          </Link>
         </div>
       )}
 
-      {/* Modules */}
+      {/* الوحدات الرئيسية */}
       <h2 className="text-lg font-bold text-slate-900 mb-4">الوحدات الرئيسية</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         {cards.map((c) => {
@@ -233,7 +216,7 @@ const Dashboard = () => {
         })}
       </div>
 
-      {/* Top products + chart */}
+      {/* أفضل 5 منتجات + مخطط المبيعات */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="shadow-md">
           <CardContent className="p-6">

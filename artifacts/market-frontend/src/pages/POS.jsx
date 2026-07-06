@@ -2,13 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Search, Plus, Minus, X, ShoppingCart, Banknote,
   CreditCard, Wallet, Building2, Smartphone, ArrowLeftRight, Clock,
-  UserPlus, RotateCcw, Calendar, User, Star,
+  UserPlus, RotateCcw, Calendar, User, Star, Receipt, Trash2,
+  CheckCircle2, AlertCircle,
 } from 'lucide-react';
-import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Badge } from '../components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
@@ -21,44 +20,42 @@ import { STORE } from '../config/store';
 const fmt = (n) => new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(n || 0);
 
 const PAYMENT_METHODS = [
-  { v: 'cash',          l: 'نقداً',       icon: Banknote,       color: 'from-emerald-500 to-emerald-600' },
-  { v: 'jaib',          l: 'جيب',         icon: Smartphone,     color: 'from-purple-500 to-purple-600' },
-  { v: 'fluusak',       l: 'فلوسك',       icon: Wallet,         color: 'from-pink-500 to-pink-600' },
-  { v: 'hasib',         l: 'حاسب',        icon: CreditCard,     color: 'from-blue-500 to-blue-600' },
-  { v: 'banki',         l: 'بنكي',        icon: Building2,      color: 'from-cyan-500 to-cyan-600' },
-  { v: 'bank_transfer', l: 'تحويل',       icon: ArrowLeftRight, color: 'from-indigo-500 to-indigo-600' },
-  { v: 'credit',        l: 'آجل',         icon: Clock,          color: 'from-rose-500 to-rose-600' },
+  { v: 'cash',          l: 'نقداً',   icon: Banknote,       color: 'from-emerald-500 to-emerald-600', ring: 'ring-emerald-400' },
+  { v: 'jaib',          l: 'جيب',     icon: Smartphone,     color: 'from-purple-500 to-purple-600',   ring: 'ring-purple-400' },
+  { v: 'fluusak',       l: 'فلوسك',  icon: Wallet,         color: 'from-pink-500 to-pink-600',       ring: 'ring-pink-400' },
+  { v: 'hasib',         l: 'حاسب',   icon: CreditCard,     color: 'from-blue-500 to-blue-600',       ring: 'ring-blue-400' },
+  { v: 'banki',         l: 'بنكي',   icon: Building2,      color: 'from-cyan-500 to-cyan-600',       ring: 'ring-cyan-400' },
+  { v: 'bank_transfer', l: 'تحويل',  icon: ArrowLeftRight, color: 'from-indigo-500 to-indigo-600',   ring: 'ring-indigo-400' },
+  { v: 'credit',        l: 'آجل',    icon: Clock,          color: 'from-rose-500 to-rose-600',       ring: 'ring-rose-400' },
 ];
 
-const POS = () => {
+export default function POS() {
   const { user } = useAuth();
 
-  // Featured products — always shown in sidebar
   const [featuredProducts, setFeaturedProducts] = useState([]);
-  // Search results — shown when query is non-empty
-  const [searchResults, setSearchResults] = useState([]);
-
-  const [cart, setCart] = useState([]);
-  const [query, setQuery] = useState('');
-  const [barcode, setBarcode] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [creditCustomer, setCreditCustomer] = useState(null);
+  const [searchResults, setSearchResults]       = useState([]);
+  const [cart, setCart]                         = useState([]);
+  const [query, setQuery]                       = useState('');
+  const [barcode, setBarcode]                   = useState('');
+  const [paymentMethod, setPaymentMethod]       = useState('cash');
+  const [creditCustomer, setCreditCustomer]     = useState(null);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
-  const [customers, setCustomers] = useState([]);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [lastInvoice, setLastInvoice] = useState(null);
-  const [returnsOpen, setReturnsOpen] = useState(false);
-  const [now, setNow] = useState(new Date());
+  const [customers, setCustomers]               = useState([]);
+  const [customerSearch, setCustomerSearch]     = useState('');
+  const [loading, setLoading]                   = useState(false);
+  const [lastInvoice, setLastInvoice]           = useState(null);
+  const [returnsOpen, setReturnsOpen]           = useState(false);
+  const [now, setNow]                           = useState(new Date());
   const barcodeRef = useRef(null);
+  const searchRef  = useRef(null);
 
-  // Live clock
+  // ساعة مباشرة
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
   }, []);
 
-  // Load featured products once
+  // تحميل المنتجات المميزة
   useEffect(() => {
     api.get('/pos/products', { params: { featured_only: true, limit: 200 } })
       .then((r) => setFeaturedProducts(r.data))
@@ -66,12 +63,9 @@ const POS = () => {
     barcodeRef.current?.focus();
   }, []);
 
-  // Search on query change (debounced)
+  // بحث ذكي بتأخير
   useEffect(() => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
+    if (!query.trim()) { setSearchResults([]); return; }
     const t = setTimeout(() => {
       api.get('/pos/products', { params: { q: query.trim(), limit: 500 } })
         .then((r) => setSearchResults(r.data))
@@ -80,7 +74,7 @@ const POS = () => {
     return () => clearTimeout(t);
   }, [query]);
 
-  // Load customers when picker opens
+  // تحميل العملاء عند فتح نافذة الاختيار
   useEffect(() => {
     if (showCustomerPicker) {
       api.get('/customers', { params: { q: customerSearch || undefined } })
@@ -88,9 +82,9 @@ const POS = () => {
     }
   }, [showCustomerPicker, customerSearch]);
 
-  // Products shown in main grid
   const displayProducts = query.trim() ? searchResults : featuredProducts;
 
+  // إضافة منتج للسلة
   const addToCart = (p) => {
     setCart((prev) => {
       const idx = prev.findIndex((x) => x.product_id === p.id);
@@ -106,6 +100,7 @@ const POS = () => {
     });
   };
 
+  // قراءة الباركود
   const onBarcodeSubmit = async (e) => {
     e.preventDefault();
     if (!barcode.trim()) return;
@@ -129,7 +124,23 @@ const POS = () => {
       return c;
     });
   };
+
+  const setQtyDirect = (idx, val) => {
+    const q = Number(val);
+    if (isNaN(q) || q < 0) return;
+    if (q === 0) {
+      setCart((prev) => prev.filter((_, i) => i !== idx));
+    } else {
+      setCart((prev) => {
+        const c = [...prev];
+        c[idx] = { ...c[idx], quantity: q };
+        return c;
+      });
+    }
+  };
+
   const removeItem = (idx) => setCart((prev) => prev.filter((_, i) => i !== idx));
+  const clearCart  = () => { if (window.confirm('هل تريد مسح السلة كاملاً؟')) setCart([]); };
 
   const total = cart.reduce((s, it) => s + it.quantity * it.unit_price, 0);
 
@@ -153,12 +164,10 @@ const POS = () => {
 
   const completeSale = async () => {
     if (cart.length === 0) {
-      toast({ title: 'السلة فارغة', variant: 'destructive' });
-      return;
+      toast({ title: 'السلة فارغة', variant: 'destructive' }); return;
     }
     if (paymentMethod === 'credit' && !creditCustomer) {
-      toast({ title: 'يجب اختيار عميل للبيع الآجل', variant: 'destructive' });
-      return;
+      toast({ title: 'يجب اختيار عميل للبيع الآجل', variant: 'destructive' }); return;
     }
     setLoading(true);
     try {
@@ -178,7 +187,6 @@ const POS = () => {
       setCart([]);
       setCreditCustomer(null);
       setPaymentMethod('cash');
-      // Refresh featured products
       api.get('/pos/products', { params: { featured_only: true, limit: 200 } })
         .then((r) => setFeaturedProducts(r.data)).catch(() => {});
       barcodeRef.current?.focus();
@@ -189,63 +197,72 @@ const POS = () => {
     }
   };
 
-  return (
-    <div className="h-full flex flex-col gap-2 p-3 bg-gradient-to-br from-slate-100 via-slate-50 to-amber-50/60" dir="rtl" data-testid="pos-page">
+  const activePayment = PAYMENT_METHODS.find((p) => p.v === paymentMethod);
 
-      {/* ══ TOP BAR ══ */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl shadow-xl px-4 py-2.5 flex items-center gap-3 text-white flex-shrink-0">
-        {/* Store brand */}
+  return (
+    <div
+      className="flex flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"
+      style={{ height: 'calc(100vh - 60px)' }}
+      dir="rtl"
+      data-testid="pos-page"
+    >
+      {/* ═══════════ شريط علوي احترافي ═══════════ */}
+      <div className="flex-shrink-0 px-3 py-2 flex items-center gap-2 border-b border-slate-700/60">
+
+        {/* الشعار + اسم الفرع */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-900/40 flex-shrink-0">
             <ShoppingCart className="w-5 h-5 text-slate-900" />
           </div>
-          <div className="hidden sm:block">
-            <p className="text-sm font-extrabold leading-tight">{STORE.name}</p>
-            <p className="text-[10px] text-slate-300 flex items-center gap-1">
-              <Calendar className="w-3 h-3" />
+          <div className="hidden sm:block leading-tight">
+            <p className="text-sm font-extrabold text-white tracking-wide">{STORE.name}</p>
+            <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+              <Calendar className="w-2.5 h-2.5" />
               {now.toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
             </p>
           </div>
         </div>
 
-        {/* Last invoice badge */}
+        {/* رقم آخر فاتورة */}
         {lastInvoice && (
-          <div className="hidden md:flex bg-emerald-500/20 border border-emerald-400/60 rounded-lg px-2.5 py-1 text-xs text-emerald-300 flex-shrink-0 items-center gap-1">
-            ✓ <span className="font-mono font-bold">{lastInvoice.invoice_no}</span>
+          <div className="hidden md:flex items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/30 rounded-lg px-2.5 py-1 text-xs text-emerald-300 flex-shrink-0">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span className="font-mono font-bold">{lastInvoice.invoice_no}</span>
           </div>
         )}
 
-        {/* ── Barcode input — center flex ── */}
-        <form onSubmit={onBarcodeSubmit} className="flex-1 flex gap-2 max-w-md mx-auto">
+        {/* قارئ الباركود — وسط */}
+        <form onSubmit={onBarcodeSubmit} className="flex-1 flex gap-2 max-w-sm mx-auto">
           <Input
             ref={barcodeRef}
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
-            placeholder="🔍 امسح الباركود ثم Enter..."
-            className="h-9 text-sm bg-slate-700/80 border-slate-600 text-white placeholder:text-slate-400 focus:bg-slate-700"
+            placeholder="🔍 امسح الباركود..."
+            className="h-9 text-sm bg-slate-800/80 border-slate-600/80 text-white placeholder:text-slate-400 focus:bg-slate-800 focus:border-amber-500/60"
             autoComplete="off"
             data-testid="pos-barcode-input"
           />
-          <Button type="submit" className="h-9 bg-amber-500 hover:bg-amber-600 text-white px-3 flex-shrink-0 text-sm">
+          <Button type="submit" className="h-9 bg-amber-500 hover:bg-amber-400 text-slate-900 px-3 flex-shrink-0 font-bold text-xs shadow-lg shadow-amber-900/30">
             إضافة
           </Button>
         </form>
 
-        {/* Actions + user */}
+        {/* أزرار الإجراءات + معلومات المستخدم */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <Button
             onClick={() => setReturnsOpen(true)}
             data-testid="pos-open-returns-btn"
-            className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white h-9 px-3 text-sm shadow"
+            className="h-9 bg-slate-700 hover:bg-amber-500 hover:text-slate-900 text-white border border-slate-600 transition-all text-xs px-3 font-semibold"
           >
-            <RotateCcw className="w-3.5 h-3.5 ml-1" />
-            مرتجع
+            <RotateCcw className="w-3.5 h-3.5 ml-1" /> مرتجع
           </Button>
-          <div className="hidden lg:flex items-center gap-2 bg-slate-700/40 rounded-lg px-2.5 py-1.5 border border-slate-600/60">
-            <User className="w-3.5 h-3.5 text-amber-400" />
-            <div className="text-xs">
-              <p className="font-semibold leading-tight">{user?.full_name || user?.email}</p>
-              <p className="text-[10px] text-slate-400 leading-tight">
+          <div className="hidden lg:flex items-center gap-2 bg-slate-800/60 rounded-xl px-3 py-1.5 border border-slate-700/60">
+            <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+              <User className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+            <div className="text-xs leading-tight">
+              <p className="font-semibold text-white">{user?.full_name || user?.email}</p>
+              <p className="text-slate-400">
                 {user?.role === 'cashier' ? 'كاشير' : user?.role === 'manager' ? 'مشرف' : 'مدير'}
               </p>
             </div>
@@ -253,65 +270,110 @@ const POS = () => {
         </div>
       </div>
 
-      {/* ══ BODY: 3 columns ══ */}
-      <div className="flex-1 flex flex-row gap-3 min-h-0">
+      {/* ═══════════ المحتوى الرئيسي: 3 أعمدة ═══════════ */}
+      <div className="flex-1 flex gap-2.5 p-2.5 min-h-0">
 
-        {/* ── 1. INVOICE PANEL (right in RTL = first child) ── */}
-        <Card className="w-[360px] xl:w-[400px] flex-shrink-0 shadow-lg flex flex-col" style={{ maxHeight: 'calc(100vh - 108px)' }}>
-          {/* Header */}
-          <div className="px-4 py-2.5 bg-slate-900 text-white rounded-t-lg flex items-center justify-between flex-shrink-0">
+        {/* ──────────── 1. لوحة الفاتورة (يمين — أول في RTL) ──────────── */}
+        <div
+          className="w-[370px] xl:w-[400px] flex-shrink-0 flex flex-col bg-slate-900 rounded-2xl border border-slate-700/60 shadow-2xl overflow-hidden"
+        >
+          {/* رأس الفاتورة */}
+          <div className="px-4 py-3 bg-gradient-to-l from-slate-800 to-slate-900 border-b border-slate-700/50 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4" />
-              <h2 className="font-bold text-sm">الفاتورة الحالية</h2>
+              <Receipt className="w-4 h-4 text-amber-400" />
+              <h2 className="font-bold text-sm text-white">الفاتورة الحالية</h2>
+              {lastInvoice && (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {lastInvoice.invoice_no}
+                </span>
+              )}
             </div>
-            {cart.length > 0 && (
-              <Badge className="bg-amber-500 text-white border-0 text-xs">{cart.length} صنف</Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {cart.length > 0 && (
+                <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 border text-xs">
+                  {cart.length} صنف
+                </Badge>
+              )}
+              {cart.length > 0 && (
+                <button
+                  onClick={clearCart}
+                  className="text-slate-500 hover:text-rose-400 transition-colors"
+                  title="مسح السلة"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Cart items */}
-          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+          {/* بنود السلة */}
+          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 min-h-0">
             {cart.length === 0 ? (
-              <div className="text-center text-slate-400 py-12">
-                <ShoppingCart className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">السلة فارغة</p>
-                <p className="text-xs mt-1 text-slate-300">انقر منتجاً أو امسح الباركود</p>
+              <div className="flex flex-col items-center justify-center h-full text-slate-600 py-12">
+                <ShoppingCart className="w-12 h-12 mb-3 opacity-20" />
+                <p className="text-sm font-medium text-slate-500">السلة فارغة</p>
+                <p className="text-xs text-slate-600 mt-1">انقر منتجاً أو امسح الباركود</p>
               </div>
             ) : cart.map((it, i) => (
-              <div key={it.product_id || `cart-${i}`} className="bg-slate-50 rounded-lg p-2.5 border border-slate-200" data-testid={`cart-item-${i}`}>
-                <div className="flex justify-between items-start mb-1.5">
-                  <p className="font-semibold text-sm flex-1 leading-snug text-slate-900">{it.name}</p>
-                  <button onClick={() => removeItem(i)} className="text-rose-400 hover:text-rose-600 mr-1 flex-shrink-0">
+              <div
+                key={it.product_id || `cart-${i}`}
+                className="bg-slate-800/60 hover:bg-slate-800 rounded-xl p-2.5 border border-slate-700/40 transition-colors group"
+                data-testid={`cart-item-${i}`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <p className="font-semibold text-sm flex-1 leading-snug text-white ml-1 line-clamp-2">{it.name}</p>
+                  <button
+                    onClick={() => removeItem(i)}
+                    className="text-slate-600 hover:text-rose-400 flex-shrink-0 transition-colors opacity-0 group-hover:opacity-100"
+                  >
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <Button size="sm" variant="outline" className="w-6 h-6 p-0" onClick={() => updateQty(i, -1)}>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => updateQty(i, -1)}
+                      className="w-6 h-6 rounded-lg bg-slate-700 hover:bg-rose-500/80 text-slate-300 hover:text-white flex items-center justify-center transition-all"
+                    >
                       <Minus className="w-2.5 h-2.5" />
-                    </Button>
-                    <span className="font-bold w-7 text-center text-sm">{it.quantity}</span>
-                    <Button size="sm" variant="outline" className="w-6 h-6 p-0" onClick={() => updateQty(i, 1)}>
+                    </button>
+                    <input
+                      type="number"
+                      value={it.quantity}
+                      onChange={(e) => setQtyDirect(i, e.target.value)}
+                      className="w-10 h-6 text-center text-sm font-bold bg-slate-700/60 text-white rounded-lg border border-slate-600/60 focus:outline-none focus:border-amber-500"
+                      min="0"
+                    />
+                    <button
+                      onClick={() => updateQty(i, 1)}
+                      className="w-6 h-6 rounded-lg bg-slate-700 hover:bg-emerald-500/80 text-slate-300 hover:text-white flex items-center justify-center transition-all"
+                    >
                       <Plus className="w-2.5 h-2.5" />
-                    </Button>
+                    </button>
                   </div>
-                  <span className="font-bold text-amber-600 text-sm">{fmt(it.quantity * it.unit_price)} ر.ي</span>
+                  <div className="text-left">
+                    <p className="font-bold text-amber-400 text-sm">{fmt(it.quantity * it.unit_price)}</p>
+                    <p className="text-[10px] text-slate-500">{fmt(it.unit_price)} × {it.quantity}</p>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Footer: total + payment + checkout */}
-          <div className="p-3 border-t bg-white space-y-2.5 rounded-b-lg flex-shrink-0">
-            {/* Total row */}
-            <div className="flex justify-between items-center py-1.5 border-b border-slate-200">
-              <span className="font-bold text-slate-800">الإجمالي</span>
-              <span className="text-xl font-extrabold text-amber-600" data-testid="pos-total">{fmt(total)} ر.ي</span>
+          {/* أسفل الفاتورة: الإجمالي + الدفع + الإتمام */}
+          <div className="flex-shrink-0 border-t border-slate-700/60 bg-slate-950/80 rounded-b-2xl p-3 space-y-3">
+
+            {/* الإجمالي */}
+            <div className="bg-gradient-to-l from-amber-500/10 to-transparent border border-amber-500/20 rounded-xl px-4 py-2.5 flex items-center justify-between">
+              <span className="text-slate-400 text-sm font-medium">الإجمالي</span>
+              <span className="text-2xl font-extrabold text-amber-400 tabular-nums" data-testid="pos-total">
+                {fmt(total)} <span className="text-sm text-amber-600">ر.ي</span>
+              </span>
             </div>
 
-            {/* Payment methods — compact 4+3 grid */}
+            {/* طرق الدفع */}
             <div>
-              <p className="text-[10px] text-slate-500 mb-1 font-medium">طريقة الدفع</p>
+              <p className="text-[10px] text-slate-500 mb-1.5 font-semibold tracking-wide">طريقة الدفع</p>
               <div className="grid grid-cols-4 gap-1 mb-1">
                 {PAYMENT_METHODS.slice(0, 4).map((p) => {
                   const Icon = p.icon;
@@ -321,10 +383,10 @@ const POS = () => {
                       key={p.v}
                       onClick={() => onPaymentSelect(p.v)}
                       data-testid={`pos-payment-${p.v}`}
-                      className={`py-1.5 px-1 rounded-lg border text-[10px] font-semibold flex flex-col items-center gap-0.5 transition-all ${
+                      className={`py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center gap-0.5 transition-all ${
                         active
-                          ? `bg-gradient-to-br ${p.color} text-white border-transparent shadow-md`
-                          : 'border-slate-200 text-slate-600 hover:border-slate-400 bg-white'
+                          ? `bg-gradient-to-br ${p.color} text-white shadow-lg`
+                          : 'bg-slate-800/60 border border-slate-700/40 text-slate-400 hover:text-white hover:border-slate-500'
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
@@ -342,10 +404,10 @@ const POS = () => {
                       key={p.v}
                       onClick={() => onPaymentSelect(p.v)}
                       data-testid={`pos-payment-${p.v}`}
-                      className={`py-1.5 px-1 rounded-lg border text-[10px] font-semibold flex flex-col items-center gap-0.5 transition-all ${
+                      className={`py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center gap-0.5 transition-all ${
                         active
-                          ? `bg-gradient-to-br ${p.color} text-white border-transparent shadow-md`
-                          : 'border-slate-200 text-slate-600 hover:border-slate-400 bg-white'
+                          ? `bg-gradient-to-br ${p.color} text-white shadow-lg`
+                          : 'bg-slate-800/60 border border-slate-700/40 text-slate-400 hover:text-white hover:border-slate-500'
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
@@ -356,26 +418,26 @@ const POS = () => {
               </div>
             </div>
 
-            {/* Credit customer info */}
+            {/* معلومات العميل الآجل */}
             {paymentMethod === 'credit' && (
-              <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5" data-testid="pos-credit-info">
+              <div className="bg-rose-900/30 border border-rose-500/40 rounded-xl p-2.5" data-testid="pos-credit-info">
                 {creditCustomer ? (
                   <>
                     <div className="flex justify-between mb-1.5">
-                      <p className="text-sm font-bold text-rose-900">{creditCustomer.full_name}</p>
-                      <button onClick={() => setShowCustomerPicker(true)} className="text-xs text-rose-600 underline">تغيير</button>
+                      <p className="text-sm font-bold text-rose-200">{creditCustomer.full_name}</p>
+                      <button onClick={() => setShowCustomerPicker(true)} className="text-xs text-rose-400 underline">تغيير</button>
                     </div>
-                    <div className="text-xs space-y-0.5">
+                    <div className="text-xs space-y-1 text-slate-300">
                       <div className="flex justify-between">
-                        <span className="text-slate-600">الرصيد السابق:</span>
-                        <span className="font-semibold">{fmt(creditCustomer.balance)} ر.ي</span>
+                        <span>الرصيد السابق</span>
+                        <span className="font-semibold text-rose-300">{fmt(creditCustomer.balance)} ر.ي</span>
                       </div>
-                      <div className="flex justify-between text-rose-600">
-                        <span>+ الفاتورة:</span>
+                      <div className="flex justify-between text-amber-400">
+                        <span>+ هذه الفاتورة</span>
                         <span className="font-semibold">{fmt(total)} ر.ي</span>
                       </div>
-                      <div className="flex justify-between font-bold border-t border-rose-200 pt-1 text-rose-900">
-                        <span>الرصيد الجديد:</span>
+                      <div className="flex justify-between font-bold border-t border-rose-500/30 pt-1 text-rose-200">
+                        <span>الرصيد الجديد</span>
                         <span>{fmt(Number(creditCustomer.balance) + total)} ر.ي</span>
                       </div>
                     </div>
@@ -383,74 +445,87 @@ const POS = () => {
                 ) : (
                   <button
                     onClick={() => setShowCustomerPicker(true)}
-                    className="w-full text-sm text-rose-700 font-medium flex items-center gap-1 justify-center py-1"
+                    className="w-full text-sm text-rose-300 font-medium flex items-center gap-1.5 justify-center py-1.5 hover:text-rose-200"
                   >
-                    <UserPlus className="w-4 h-4" /> اختر عميلاً
+                    <UserPlus className="w-4 h-4" /> اختر عميلاً للبيع الآجل
                   </button>
                 )}
               </div>
             )}
 
-            {/* Complete sale button */}
-            <Button
+            {/* زر إتمام البيع */}
+            <button
               onClick={completeSale}
               disabled={loading || cart.length === 0 || (paymentMethod === 'credit' && !creditCustomer)}
-              className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-lg disabled:opacity-50"
               data-testid="pos-complete-sale-btn"
+              className={`w-full h-12 rounded-xl font-extrabold text-sm transition-all shadow-xl disabled:opacity-40 disabled:cursor-not-allowed ${
+                cart.length > 0 && !(paymentMethod === 'credit' && !creditCustomer)
+                  ? `bg-gradient-to-l ${activePayment?.color || 'from-emerald-500 to-emerald-600'} text-white shadow-emerald-900/40 hover:scale-[1.01] active:scale-[0.99]`
+                  : 'bg-slate-700 text-slate-500'
+              }`}
             >
-              {loading
-                ? 'جارٍ الحفظ...'
-                : cart.length === 0
-                  ? 'إتمام البيع'
-                  : `✓ إتمام البيع — ${fmt(total)} ر.ي`}
-            </Button>
+              {loading ? (
+                <span className="flex items-center gap-2 justify-center">
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  جارٍ الحفظ...
+                </span>
+              ) : cart.length === 0 ? (
+                'إتمام البيع'
+              ) : (
+                <span className="flex items-center gap-2 justify-center">
+                  <CheckCircle2 className="w-5 h-5" />
+                  إتمام البيع — {fmt(total)} ر.ي
+                </span>
+              )}
+            </button>
 
             {lastInvoice && (
-              <p className="text-center text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-1.5" data-testid="pos-last-invoice">
-                آخر فاتورة: <strong className="font-mono">{lastInvoice.invoice_no}</strong>
-              </p>
+              <div className="text-center text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg py-1.5" data-testid="pos-last-invoice">
+                ✓ آخر فاتورة: <strong className="font-mono">{lastInvoice.invoice_no}</strong>
+              </div>
             )}
           </div>
-        </Card>
+        </div>
 
-        {/* ── 2. PRODUCTS GRID (center, flex-1) ── */}
+        {/* ──────────── 2. شبكة المنتجات (وسط) ──────────── */}
         <div className="flex-1 flex flex-col gap-2 min-w-0">
-          {/* Search */}
+          {/* البحث */}
           <div className="relative flex-shrink-0">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <Input
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="بحث بالاسم أو SKU..."
-              className="pr-10 h-10 bg-white shadow-sm"
+              className="pr-10 h-10 bg-slate-800/80 border-slate-700/60 text-white placeholder:text-slate-500 focus:border-amber-500/60"
               data-testid="pos-search-input"
             />
             {query && (
               <button
                 onClick={() => setQuery('')}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
               >
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          {/* Label */}
+          {/* تسمية */}
           <div className="flex items-center justify-between px-1 flex-shrink-0">
-            <h3 className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
+            <h3 className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
               {query.trim()
                 ? `نتائج البحث (${displayProducts.length})`
                 : `المنتجات المميزة (${displayProducts.length})`}
             </h3>
             {!query.trim() && (
-              <span className="text-[10px] text-slate-400">ابحث بالأعلى لعرض جميع المنتجات</span>
+              <span className="text-[10px] text-slate-600">ابحث بالأعلى أو امسح الباركود</span>
             )}
           </div>
 
-          {/* Grid */}
+          {/* شبكة المنتجات */}
           <div
-            className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 overflow-y-auto flex-1"
+            className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 overflow-y-auto flex-1"
             style={{ minHeight: 0 }}
           >
             {displayProducts.map((p) => (
@@ -458,52 +533,55 @@ const POS = () => {
                 key={p.id}
                 onClick={() => addToCart(p)}
                 data-testid={`pos-product-${p.sku}`}
-                className="bg-white rounded-xl p-3 shadow-sm border border-slate-200 hover:shadow-md hover:border-amber-400 active:scale-95 transition-all text-right flex flex-col justify-between h-[100px]"
+                className="bg-slate-800/70 hover:bg-slate-700/90 rounded-2xl p-3 border border-slate-700/40 hover:border-amber-500/50 active:scale-95 transition-all text-right flex flex-col justify-between h-[96px] shadow-sm hover:shadow-amber-900/20 hover:shadow-lg group"
               >
-                <p className="font-semibold text-slate-900 text-sm line-clamp-2 leading-snug">{p.name}</p>
+                <p className="font-semibold text-slate-100 text-xs line-clamp-2 leading-snug group-hover:text-white">{p.name}</p>
                 <div className="flex justify-between items-center mt-1">
-                  <span className="font-bold text-amber-600 text-sm">{fmt(p.sale_price)} ر.ي</span>
-                  <Badge variant="secondary" className="text-[10px] px-1.5">{fmt(p.current_stock)}</Badge>
+                  <span className="font-extrabold text-amber-400 text-sm">{fmt(p.sale_price)}</span>
+                  <span className="text-[10px] text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded-md">{fmt(p.current_stock)}</span>
                 </div>
               </button>
             ))}
             {displayProducts.length === 0 && (
-              <div className="col-span-full text-center text-slate-400 py-16 bg-white/60 rounded-xl border-2 border-dashed border-slate-300">
+              <div className="col-span-full flex flex-col items-center justify-center text-slate-600 py-16 bg-slate-800/20 rounded-2xl border-2 border-dashed border-slate-700/40">
                 {query.trim() ? (
-                  <p className="text-sm">لا توجد منتجات تطابق &quot;{query}&quot;</p>
+                  <>
+                    <AlertCircle className="w-10 h-10 mb-2 opacity-30" />
+                    <p className="text-sm text-slate-500">لا توجد منتجات تطابق "{query}"</p>
+                  </>
                 ) : (
-                  <div className="space-y-2">
-                    <Star className="w-10 h-10 mx-auto opacity-20" />
-                    <p className="text-sm font-medium">لا توجد منتجات مميزة</p>
-                    <p className="text-xs">ابحث بالأعلى أو امسح الباركود لإضافة منتج</p>
-                  </div>
+                  <>
+                    <Star className="w-10 h-10 mb-2 opacity-20" />
+                    <p className="text-sm font-medium text-slate-500">لا توجد منتجات مميزة</p>
+                    <p className="text-xs text-slate-600 mt-1">ابحث أو امسح الباركود لإضافة منتج</p>
+                  </>
                 )}
               </div>
             )}
           </div>
         </div>
 
-        {/* ── 3. FEATURED SIDEBAR (left in RTL = last child) ── */}
+        {/* ──────────── 3. الشريط الجانبي المميز (يسار) ──────────── */}
         {featuredProducts.length > 0 && (
           <div
-            className="w-36 xl:w-44 flex-shrink-0 flex flex-col gap-2"
-            style={{ maxHeight: 'calc(100vh - 108px)' }}
+            className="w-40 xl:w-48 flex-shrink-0 flex flex-col gap-2"
+            style={{ maxHeight: '100%' }}
           >
-            <div className="flex items-center gap-1.5 flex-shrink-0 px-1">
-              <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-              <h3 className="text-xs font-bold text-slate-600">مميزة</h3>
+            <div className="flex items-center gap-1.5 px-1 flex-shrink-0">
+              <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+              <h3 className="text-xs font-bold text-slate-400">الأكثر مبيعاً</h3>
             </div>
             <div className="overflow-y-auto flex-1 space-y-1.5">
               {featuredProducts.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => addToCart(p)}
-                  className="w-full bg-gradient-to-br from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-200 hover:border-amber-500 rounded-xl p-2.5 text-right transition-all shadow-sm active:scale-95"
+                  className="w-full bg-gradient-to-br from-amber-900/30 to-orange-900/20 hover:from-amber-800/50 hover:to-orange-800/30 border border-amber-700/30 hover:border-amber-500/60 rounded-xl p-2.5 text-right transition-all shadow-sm active:scale-95 group"
                 >
-                  <p className="font-bold text-xs text-slate-900 line-clamp-2 leading-snug mb-1">{p.name}</p>
+                  <p className="font-bold text-xs text-slate-100 group-hover:text-white line-clamp-2 leading-snug mb-1.5">{p.name}</p>
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-amber-700">{fmt(p.sale_price)} ر.ي</span>
-                    <span className="text-[9px] text-slate-400">{fmt(p.current_stock)}</span>
+                    <span className="text-[11px] font-extrabold text-amber-400">{fmt(p.sale_price)} ر.ي</span>
+                    <span className="text-[9px] text-slate-500">{fmt(p.current_stock)}</span>
                   </div>
                 </button>
               ))}
@@ -512,7 +590,9 @@ const POS = () => {
         )}
       </div>
 
-      {/* ══ DIALOGS ══ */}
+      {/* ═══════════ النوافذ المنبثقة ═══════════ */}
+
+      {/* نافذة المرتجعات */}
       <PosReturnsDialog
         open={returnsOpen}
         onClose={() => setReturnsOpen(false)}
@@ -522,11 +602,13 @@ const POS = () => {
         }}
       />
 
-      {/* Customer picker */}
+      {/* نافذة اختيار العميل */}
       <Dialog open={showCustomerPicker} onOpenChange={setShowCustomerPicker}>
         <DialogContent className="max-w-lg" dir="rtl">
           <DialogHeader>
-            <DialogTitle>اختر العميل للبيع الآجل</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-rose-500" /> اختر العميل للبيع الآجل
+            </DialogTitle>
           </DialogHeader>
           <div className="relative mb-2">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -547,7 +629,7 @@ const POS = () => {
                 key={c.id}
                 onClick={() => selectCustomer(c)}
                 data-testid={`pos-customer-pick-${c.id}`}
-                className="w-full text-right p-3 rounded-lg border hover:bg-amber-50 hover:border-amber-400 transition-all"
+                className="w-full text-right p-3 rounded-xl border border-slate-200 hover:bg-rose-50 hover:border-rose-300 transition-all"
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -556,8 +638,8 @@ const POS = () => {
                   </div>
                   <div className="text-left">
                     <p className="text-xs text-slate-500">الرصيد</p>
-                    <p className={`font-bold ${Number(c.balance) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {fmt(c.balance)}
+                    <p className={`font-bold text-sm ${Number(c.balance) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {fmt(c.balance)} ر.ي
                     </p>
                   </div>
                 </div>
@@ -568,6 +650,4 @@ const POS = () => {
       </Dialog>
     </div>
   );
-};
-
-export default POS;
+}
