@@ -63,14 +63,15 @@ const Sales = () => {
       const day = (s.created_at || '').split('T')[0];
       if (!day) continue;
       if (!map[day]) map[day] = { date: day, total: 0, cash: 0, credit: 0, count: 0, rows: [] };
-      const t = Number(s.total);
-      map[day].total += t;
-      map[day].count += 1;
+      // Only completed invoices count toward totals
       if (s.status === 'completed') {
+        const t = Number(s.total);
+        map[day].total += t;
+        map[day].count += 1;
         if (s.payment_method === 'credit') map[day].credit += t;
         else map[day].cash += t;
       }
-      map[day].rows.push(s);
+      map[day].rows.push(s); // keep all rows in the detail view
     }
     return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
   }, [sales]);
