@@ -134,38 +134,36 @@ export default function ManagerDashboard() {
         </div>
       </section>
 
-      {/* PURCHASES KPIs */}
-      {data.purchases && (
-        <section>
-          <h2 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
-            <Truck className="w-5 h-5 text-indigo-600" /> المشتريات (فواتير التوريد)
-          </h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard label="مشتريات اليوم"   value={formatMoney(data.purchases.today_total)} gradient="from-indigo-500 to-purple-600" icon={Truck} testid="kpi-purchases-today" />
-            <KpiCard label="مشتريات الأسبوع" value={formatMoney(data.purchases.week_total)}  gradient="from-indigo-600 to-purple-700" icon={Truck} testid="kpi-purchases-week" />
-            <KpiCard label="مشتريات الشهر"  value={formatMoney(data.purchases.month_total)} gradient="from-purple-600 to-fuchsia-600" icon={Truck} testid="kpi-purchases-month" />
-            <KpiCard label="مشتريات السنة"  value={formatMoney(data.purchases.year_total)}  gradient="from-purple-700 to-fuchsia-700" icon={Truck} testid="kpi-purchases-year" />
+      {/* SALES BREAKDOWN — cash vs credit */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+          <div className="flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-emerald-600" />
+            <span className="text-sm text-slate-700">مبيعات اليوم النقدية</span>
           </div>
-          <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-            <div className="flex justify-between p-2 bg-indigo-50 rounded">
-              <span className="text-slate-600">عدد فواتير اليوم</span>
-              <strong className="text-indigo-700" data-testid="kpi-purchases-today-count">{data.purchases.today_count}</strong>
-            </div>
-            <div className="flex justify-between p-2 bg-indigo-50 rounded">
-              <span className="text-slate-600">منتجات أُضيفت اليوم</span>
-              <strong className="text-indigo-700" data-testid="kpi-products-added-today">{data.purchases.today_products_added ?? 0}</strong>
-            </div>
-            <div className="flex justify-between p-2 bg-indigo-50 rounded">
-              <span className="text-slate-600">عدد فواتير الشهر</span>
-              <strong className="text-indigo-700" data-testid="kpi-purchases-month-count">{data.purchases.month_count}</strong>
-            </div>
-            <div className="flex justify-between p-2 bg-indigo-50 rounded">
-              <span className="text-slate-600">منتجات أُضيفت الشهر</span>
-              <strong className="text-indigo-700" data-testid="kpi-products-added-month">{data.purchases.month_products_added ?? 0}</strong>
-            </div>
+          <strong className="text-emerald-700 font-bold" data-testid="kpi-sales-today-cash">
+            {formatMoney(data.sales.today_cash ?? 0)}
+          </strong>
+        </div>
+        <div className="flex justify-between items-center p-3 bg-rose-50 rounded-xl border border-rose-200">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-rose-600" />
+            <span className="text-sm text-slate-700">مبيعات اليوم الآجلة</span>
           </div>
-        </section>
-      )}
+          <strong className="text-rose-700 font-bold" data-testid="kpi-sales-today-credit">
+            {formatMoney(data.sales.today_credit ?? 0)}
+          </strong>
+        </div>
+        <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl border border-blue-200">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-5 h-5 text-blue-600" />
+            <span className="text-sm text-slate-700">عدد فواتير اليوم</span>
+          </div>
+          <strong className="text-blue-700 font-bold" data-testid="kpi-invoices-today">
+            {data.sales.invoices_today ?? 0}
+          </strong>
+        </div>
+      </div>
 
       {/* Cash Box + Returns + Customers + Suppliers Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">

@@ -33,12 +33,21 @@ def supplier_statement(supplier_id: str, db=Depends(get_db), _u=Depends(require_
 
     entries = []
 
-    # فاتورة توريد → دائن في حساب المورد (الشركة مدينة للمورد)
+    # فاتورة توريد → دائن في حساب المورد
+    # نقداً/تحويل بنكي: يُدرج الدفع الفوري أيضاً (صافي = صفر على الرصيد)
+    # آجل: يُضاف الدين فقط
     for p in db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None}).sort("created_at", 1):
+        pm = p.get("payment_method", "credit")
+        total_p = float(p.get("total", 0))
+        paid_now = float(p.get("paid_amount", 0)) if pm == "credit" else total_p
+        op_no = p.get("ref_no") or p.get("invoice_no") or p["_id"]
         entries.append({
-            "type": "purchase", "date": p.get("created_at"),
-            "op_no": p.get("ref_no") or p.get("invoice_no") or p["_id"],
-            "debit": 0.0, "credit": float(p.get("total", 0)),
+            "type": "purchase",
+            "date": p.get("created_at"),
+            "op_no": op_no,
+            "debit": paid_now,          # الجزء المدفوع فوراً (نقداً = كامل المبلغ)
+            "credit": total_p,          # قيمة الفاتورة
+            "payment_method": pm,
         })
 
     # سند صرف → مدين في حساب المورد (تخفيض الدين على المورد)

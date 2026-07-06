@@ -123,13 +123,10 @@ export default function Returns() {
             إنشاء طلبات المرتجع، متابعة الحالة، واعتماد/رفض من قِبل المدير
           </p>
         </div>
-        <Button
-          className="bg-orange-500 hover:bg-orange-600 text-white"
-          onClick={() => setCreateOpen(true)}
-          data-testid="new-return-btn"
-        >
-          <Plus className="w-4 h-4 ml-2" /> طلب مرتجع جديد
-        </Button>
+        {/* إنشاء المرتجع يتم من نقطة البيع أو حسابات التوريد - لا يظهر هنا */}
+        <p className="text-xs text-slate-400 bg-slate-100 rounded px-3 py-1.5">
+          📌 إنشاء المرتجعات يتم من نقطة البيع
+        </p>
       </div>
 
       {/* Stats */}

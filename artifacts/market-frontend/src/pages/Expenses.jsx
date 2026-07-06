@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Trash2 } from 'lucide-react';
+import { Plus, Wallet } from 'lucide-react';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -45,12 +45,6 @@ const Expenses = () => {
     } catch (e) { toast({ title: 'خطأ', description: formatApiError(e), variant: 'destructive' }); }
   };
 
-  const del = async (id) => {
-    if (!window.confirm('حذف المصروف؟')) return;
-    try { await api.delete(`/expenses/${id}`); toast({ title: 'تم الحذف' }); load(); }
-    catch (e) { toast({ title: 'خطأ', description: formatApiError(e), variant: 'destructive' }); }
-  };
-
   const total = items.reduce((s, e) => s + Number(e.amount), 0);
 
   return (
@@ -78,7 +72,6 @@ const Expenses = () => {
                 <th className="px-4 py-3 text-right">الوصف</th>
                 <th className="px-4 py-3 text-right">المبلغ</th>
                 <th className="px-4 py-3 text-right">الدفع</th>
-                <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -96,13 +89,6 @@ const Expenses = () => {
                   <td className="px-4 py-3 text-slate-700">{e.description || '—'}</td>
                   <td className="px-4 py-3 font-bold text-rose-600">{fmt(e.amount)} ر.ي</td>
                   <td className="px-4 py-3 text-slate-600">{e.payment_method}</td>
-                  <td className="px-4 py-3">
-                    {can('admin', 'manager') && (
-                      <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => del(e.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </td>
                 </tr>
               ))}
             </tbody>

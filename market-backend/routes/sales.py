@@ -299,3 +299,61 @@ def current_shift(db = Depends(get_db), current = Depends(require_cashier)):
 def list_shifts(db = Depends(get_db), _u = Depends(require_manager)):
     rows = list(db[C.shifts].find({}).sort("opened_at", -1).limit(100))
     return [ShiftOut.model_validate(_shift_out(s)) for s in rows]
+
+
+# ─── Returnable items (used by POS returns dialog) ───────────────────────────
+
+@router.get("/sales/{sale_id}/returnable-items")
+def returnable_items(sale_id: str, db=Depends(get_db), _u=Depends(require_cashier)):
+    """Return items from a sale that can still be returned (accounting for prior returns)."""
+    sale = db[C.sales].find_one({"_id": sale_id, "deleted_at": None})
+    if not sale:
+        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")
+
+    items = list(db[C.sale_items].find({"sale_id": sale_id}))
+
+    # Pre-fetch products
+    prod_ids = [it["product_id"] for it in items]
+    prod_map = {p["_id"]: p for p in db[C.products].find(
+        {"_id": {"$in": prod_ids}}, {"name": 1, "sku": 1}
+    )}
+
+    result_items = []
+    for it in items:
+        # Sum already-returned qty (approved OR pending) for this sale_item
+        agg = list(db[C.sale_return_items].aggregate([
+            {"$match": {"sale_item_id": it["_id"]}},
+            {"$lookup": {
+                "from": C.sale_returns,
+                "localField": "return_id",
+                "foreignField": "_id",
+                "as": "ret",
+            }},
+            {"$unwind": "$ret"},
+            {"$match": {"ret.status": {"$in": ["pending", "approved"]}}},
+            {"$group": {"_id": None, "total": {"$sum": "$quantity"}}},
+        ]))
+        previously_returned = float(agg[0]["total"]) if agg else 0.0
+        sold_qty = float(it.get("quantity", 0))
+        remaining = max(0.0, sold_qty - previously_returned)
+
+        prod = prod_map.get(it["product_id"], {})
+        result_items.append({
+            "sale_item_id": it["_id"],
+            "product_id": it["product_id"],
+            "product_name": prod.get("name", "—"),
+            "product_sku": prod.get("sku"),
+            "sold_quantity": sold_qty,
+            "previously_returned": previously_returned,
+            "remaining_returnable": remaining,
+            "unit_price": float(it.get("unit_price", 0)),
+            "line_total": float(it.get("total", 0)),
+        })
+
+    return {
+        "sale_id": sale_id,
+        "invoice_no": sale.get("invoice_no"),
+        "total": float(sale.get("total", 0)),
+        "customer_name": None,  # enriched below if customer exists
+        "items": result_items,
+    }
