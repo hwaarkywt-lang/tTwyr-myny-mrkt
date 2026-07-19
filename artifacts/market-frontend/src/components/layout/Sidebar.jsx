@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Users, TrendingUp,
   Wallet, FileText, Settings, UserCircle, LogOut, Store,
-  ShieldCheck, Bell, RefreshCw, ScrollText, Lock, Database,
+  ShieldCheck, Bell, RefreshCw, ScrollText, Lock, Database, AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../lib/api';
@@ -20,8 +20,9 @@ const menuItems = [
   { path: '/dashboard/pos',          label: 'نقطة البيع',     icon: ShoppingCart,    roles: ['admin', 'manager', 'cashier'] },
   { path: '/dashboard/sales',        label: 'المبيعات',       icon: TrendingUp,      roles: ['admin', 'manager', 'cashier'] },
   { path: '/dashboard/customers',    label: 'العملاء',        icon: Users,           roles: ['admin', 'manager', 'cashier'] },
-  { path: '/dashboard/products',     label: 'المنتجات',       icon: Package,         roles: ['admin'] },
-  { path: '/dashboard/purchases',    label: 'حسابات التجار',  icon: Store,           roles: ['admin', 'manager'] },
+  { path: '/dashboard/products',      label: 'المنتجات',         icon: Package,         roles: ['admin'] },
+  { path: '/dashboard/stock-alerts', label: 'تنبيهات المخزون', icon: AlertTriangle,   roles: ['manager', 'cashier'] },
+  { path: '/dashboard/purchases',    label: 'حسابات التجار',   icon: Store,           roles: ['admin', 'manager'] },
   { path: '/dashboard/expenses',     label: 'المصروفات',     icon: Wallet,          roles: ['admin', 'manager', 'cashier'] },
   { path: '/dashboard/returns',      label: 'المرتجعات',      icon: RefreshCw,       roles: ['admin', 'manager', 'cashier'] },
   { path: '/dashboard/approvals',    label: 'طلبات التعديل',  icon: ShieldCheck,     roles: ['admin'] },

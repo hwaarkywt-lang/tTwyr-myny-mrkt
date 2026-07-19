@@ -98,6 +98,29 @@ export default function POS() {
 
   // إضافة منتج للسلة
   const addToCart = (p) => {
+    const stock = Number(p.current_stock ?? 0);
+
+    // نفد المخزون كلياً
+    if (stock <= 0) {
+      toast({
+        title: '⛔ نفد المخزون',
+        description: `"${p.name}" — لا توجد كمية متاحة في المخزون حالياً`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // التحقق من عدم تجاوز الكمية المتاحة
+    const existingQty = cart.find((x) => x.product_id === p.id)?.quantity || 0;
+    if (existingQty + 1 > stock) {
+      toast({
+        title: '⚠️ تجاوز الكمية المتاحة',
+        description: `الكمية المتاحة من "${p.name}" هي ${fmt(stock)} فقط`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setCart((prev) => {
       const idx = prev.findIndex((x) => x.product_id === p.id);
       if (idx >= 0) {
@@ -108,6 +131,7 @@ export default function POS() {
       return [...prev, {
         product_id: p.id, name: p.name, sku: p.sku, unit: p.unit,
         quantity: 1, unit_price: Number(p.sale_price),
+        stock: stock,
       }];
     });
   };
@@ -601,20 +625,50 @@ export default function POS() {
             className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 overflow-y-auto flex-1"
             style={{ minHeight: 0 }}
           >
-            {displayProducts.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => addToCart(p)}
-                data-testid={`pos-product-${p.sku}`}
-                className="bg-slate-800/70 hover:bg-slate-700/90 rounded-2xl p-3 border border-slate-700/40 hover:border-amber-500/50 active:scale-95 transition-all text-right flex flex-col justify-between h-[96px] shadow-sm hover:shadow-amber-900/20 hover:shadow-lg group"
-              >
-                <p className="font-semibold text-slate-100 text-xs line-clamp-2 leading-snug group-hover:text-white">{p.name}</p>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="font-extrabold text-amber-400 text-sm">{fmt(p.sale_price)}</span>
-                  <span className="text-[10px] text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded-md">{fmt(p.current_stock)}</span>
-                </div>
-              </button>
-            ))}
+            {displayProducts.map((p) => {
+              const outOfStock = Number(p.current_stock) <= 0;
+              const lowStock   = !outOfStock && Number(p.current_stock) <= 3;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => addToCart(p)}
+                  data-testid={`pos-product-${p.sku}`}
+                  className={`relative rounded-2xl p-3 border active:scale-95 transition-all text-right flex flex-col justify-between h-[96px] shadow-sm group
+                    ${outOfStock
+                      ? 'bg-slate-800/30 border-rose-900/30 opacity-60'
+                      : 'bg-slate-800/70 hover:bg-slate-700/90 border-slate-700/40 hover:border-amber-500/50 hover:shadow-amber-900/20 hover:shadow-lg'
+                    }`}
+                >
+                  {/* شارة نفاد المخزون */}
+                  {outOfStock && (
+                    <span className="absolute top-1.5 left-1.5 text-[9px] bg-rose-700 text-white px-1.5 py-0.5 rounded font-bold leading-none">
+                      نفد
+                    </span>
+                  )}
+                  {/* شارة مخزون منخفض */}
+                  {lowStock && (
+                    <span className="absolute top-1.5 left-1.5 text-[9px] bg-amber-600 text-white px-1.5 py-0.5 rounded font-bold leading-none">
+                      قليل
+                    </span>
+                  )}
+                  <p className={`font-semibold text-xs line-clamp-2 leading-snug ${outOfStock ? 'text-slate-500' : 'text-slate-100 group-hover:text-white'}`}>
+                    {p.name}
+                  </p>
+                  <div className="flex justify-between items-center mt-1">
+                    <span className={`font-extrabold text-sm ${outOfStock ? 'text-slate-600' : 'text-amber-400'}`}>
+                      {fmt(p.sale_price)}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold ${
+                      outOfStock ? 'bg-rose-900/40 text-rose-400'
+                      : lowStock  ? 'bg-amber-900/40 text-amber-400'
+                      : 'text-slate-500 bg-slate-700/60'
+                    }`}>
+                      {fmt(p.current_stock)}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
             {displayProducts.length === 0 && (
               <div className="col-span-full flex flex-col items-center justify-center text-slate-600 py-16 bg-slate-800/20 rounded-2xl border-2 border-dashed border-slate-700/40">
                 {query.trim() ? (
