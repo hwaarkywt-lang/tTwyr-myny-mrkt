@@ -27,13 +27,14 @@ const typeMeta = {
 };
 
 // نوع الرصيد المحاسبي لحساب المورد (المعادلة: دائن - مدين)
-// موجب = الشركة مدينة للمورد (فواتير > مدفوع) = دائن = متبقي للتاجر
-// سالب = دفعنا أكثر من الفواتير = مدين للشركة
+// موجب = نحن مدينون للتاجر → مستحق للتاجر (أحمر)
+// سالب = دفعنا أكثر → مستحق لنا عند التاجر (أخضر)
 const balanceLabel = (b) => {
-  const abs = Math.abs(Number(b));
-  if (abs < 0.01) return { text: 'صفر', color: 'text-slate-600' };
-  if (Number(b) > 0) return { text: `${fmt(abs)} ر.ي دائن`, color: 'text-rose-700' };
-  return { text: `${fmt(abs)} ر.ي مدين`, color: 'text-emerald-700' };
+  const n = Number(b);
+  const abs = Math.abs(n);
+  if (abs < 0.01) return { text: 'مسدّد', color: 'text-slate-500' };
+  if (n > 0) return { text: `${fmt(abs)} ر.ي (مستحق للتاجر)`, color: 'text-rose-700' };
+  return { text: `${fmt(abs)} ر.ي (مستحق لنا)`, color: 'text-emerald-700' };
 };
 
 const SupplierDetail = () => {
@@ -121,18 +122,31 @@ const SupplierDetail = () => {
 
       {/* Stats cards */}
       {(() => {
-        // الرصيد = دائن تراكمي - مدين تراكمي → موجب = متبقي للتاجر
         const closing = statement ? Number(statement.closing_balance) : Number(detail.balance);
-        const balAbs = Math.abs(closing);
-        const balLabel = balAbs < 0.01 ? 'صفر' : closing > 0 ? `${fmt(closing)} ر.ي` : `${fmt(balAbs)} ر.ي (مدفوع زيادة)`;
+        // موجب = مستحق للتاجر (نحن مدينون) — سالب = مستحق لنا عند التاجر (نحن دائنون)
+        const owedToSupplier = Math.max(0, closing);
+        const owedToUs      = Math.max(0, -closing);
         const cards = [
-          { l: 'إجمالي فواتير التوريد', v: fmt(detail.total_purchases) + ' ر.ي', color: 'from-blue-500 to-blue-600', icon: TrendingUp, t: 'stat-purchases' },
-          { l: 'إجمالي المدفوع', v: fmt(detail.total_paid) + ' ر.ي', color: 'from-emerald-500 to-emerald-600', icon: TrendingDown, t: 'stat-paid' },
-          { l: 'إجمالي الاسترجاع', v: fmt(detail.total_returns) + ' ر.ي', color: 'from-orange-500 to-orange-600', icon: RotateCcw, t: 'stat-returns' },
-          { l: 'إجمالي المتبقي للتاجر', v: balLabel, color: 'from-rose-600 to-rose-700', icon: Wallet, t: 'stat-balance' },
+          { l: 'إجمالي فواتير التوريد',   v: fmt(detail.total_purchases) + ' ر.ي', color: 'from-blue-500 to-blue-600',    icon: TrendingUp,  t: 'stat-purchases' },
+          { l: 'إجمالي المدفوع',          v: fmt(detail.total_paid)      + ' ر.ي', color: 'from-emerald-500 to-emerald-600', icon: TrendingDown, t: 'stat-paid' },
+          { l: 'إجمالي الاسترجاع',        v: fmt(detail.total_returns)   + ' ر.ي', color: 'from-orange-500 to-orange-600', icon: RotateCcw,   t: 'stat-returns' },
+          {
+            l: 'مستحق للتاجر',
+            v: owedToSupplier < 0.01 ? 'صفر' : fmt(owedToSupplier) + ' ر.ي',
+            color: owedToSupplier < 0.01 ? 'from-slate-400 to-slate-500' : 'from-rose-600 to-rose-700',
+            icon: Wallet, t: 'stat-owed-to-supplier',
+            note: 'المبالغ التي علينا دفعها للتاجر',
+          },
+          {
+            l: 'مستحق لنا عند التاجر',
+            v: owedToUs < 0.01 ? 'صفر' : fmt(owedToUs) + ' ر.ي',
+            color: owedToUs < 0.01 ? 'from-slate-400 to-slate-500' : 'from-emerald-600 to-emerald-700',
+            icon: TrendingDown, t: 'stat-owed-to-us',
+            note: 'رصيد دائن لنا (دفعنا زيادة أو مرتجعات)',
+          },
         ];
         return (
-          <div className="no-print grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className="no-print grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
             {cards.map((s) => {
               const Icon = s.icon;
               return (
@@ -141,6 +155,7 @@ const SupplierDetail = () => {
                     <Icon className="w-5 h-5 mb-2 opacity-90" />
                     <p className="text-white/80 text-xs">{s.l}</p>
                     <p className="text-lg font-bold mt-1" data-testid={s.t}>{s.v}</p>
+                    {s.note && <p className="text-white/60 text-[10px] mt-0.5">{s.note}</p>}
                   </div>
                 </Card>
               );
@@ -360,6 +375,7 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
   const [categories, setCategories] = useState([]);
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('credit');
+  const [paidAmount, setPaidAmount] = useState('');
   const [saving, setSaving] = useState(false);
   // إضافة منتج جديد inline
   const [newProductOpen, setNewProductOpen] = useState(false);
@@ -371,7 +387,7 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
 
   useEffect(() => {
     if (open) {
-      setItems([]); setNotes(''); setBarcode(''); setPaymentMethod('credit');
+      setItems([]); setNotes(''); setBarcode(''); setPaymentMethod('credit'); setPaidAmount('');
       reload();
       api.get('/categories').then((r) => setCategories(r.data || [])).catch(() => {});
     }
@@ -448,13 +464,15 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
     return Number(it.unit_cost) || 0;
   };
   const grand = items.reduce((s, it) => s + lineTotal(it), 0);
+  const paidNow = Math.min(grand, Math.max(0, Number(paidAmount) || 0));
+  const remaining = grand - paidNow;
 
   const save = async () => {
     if (items.length === 0) { toast({ title: 'أضف منتجاً واحداً على الأقل', variant: 'destructive' }); return; }
     setSaving(true);
     try {
       const payload = {
-        supplier_id: supplierId, notes: notes || null, paid_amount: 0,
+        supplier_id: supplierId, notes: notes || null, paid_amount: paidNow,
         payment_method: paymentMethod,
         items: items.map((it) => it.unit === 'carton' ? ({
           product_id: it.product_id, unit: 'carton',
@@ -540,9 +558,41 @@ const PurchaseDialog = ({ open, onClose, supplierId, supplierName, onSaved }) =>
               </div>
             )}
           </div>
-          <div className="md:col-span-3 bg-slate-50 rounded-lg p-3 flex items-center justify-between">
-            <p className="text-sm text-slate-600">إجمالي الفاتورة:</p>
-            <p className="text-2xl font-bold text-rose-700" data-testid="purchase-total">{fmt(grand)} ر.ي</p>
+          <div className="md:col-span-3 bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2">
+            {/* إجمالي الفاتورة */}
+            <div className="flex items-center justify-between border-b pb-2">
+              <span className="text-sm text-slate-600">إجمالي قيمة المنتجات:</span>
+              <span className="text-2xl font-bold text-rose-700" data-testid="purchase-total">{fmt(grand)} ر.ي</span>
+            </div>
+            {/* المبلغ المدفوع للتاجر */}
+            <div className="flex items-center gap-3">
+              <Label className="text-sm font-semibold text-slate-700 whitespace-nowrap">المبلغ المدفوع للتاجر:</Label>
+              <div className="flex-1 flex gap-2">
+                <Input
+                  type="number" step="0.01" min="0" max={grand}
+                  value={paidAmount}
+                  onChange={(e) => setPaidAmount(e.target.value)}
+                  placeholder="0"
+                  className="text-lg font-bold"
+                  data-testid="purchase-paid-amount-input"
+                />
+                <Button type="button" size="sm"
+                  onClick={() => setPaidAmount(String(grand))}
+                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 whitespace-nowrap text-xs h-9 px-2">
+                  تسديد كامل
+                </Button>
+              </div>
+            </div>
+            {/* المتبقي للتاجر */}
+            <div className={`flex items-center justify-between pt-2 border-t-2 ${remaining > 0 ? 'border-rose-200' : 'border-emerald-200'}`}>
+              <span className="text-sm font-bold text-slate-700">
+                {remaining > 0 ? 'المتبقي للتاجر (يُضاف لرصيده):' : remaining === 0 ? 'الرصيد:' : 'مستحق لنا عند التاجر:'}
+              </span>
+              <span className={`text-xl font-extrabold ${remaining > 0 ? 'text-rose-700' : remaining < 0 ? 'text-emerald-700' : 'text-slate-500'}`}>
+                {fmt(Math.abs(remaining))} ر.ي
+                {remaining === 0 && <span className="text-sm font-normal text-slate-400 mr-1">(مسدّد)</span>}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -1001,10 +1051,22 @@ const SupplierPaymentDialog = ({ open, onClose, supplierId, balance, onSaved }) 
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent dir="rtl">
         <DialogHeader><DialogTitle>تسديد للتاجر</DialogTitle></DialogHeader>
-        <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 mb-3 text-sm flex justify-between">
-          <span>الرصيد المستحق:</span>
-          <span className="font-bold text-rose-700">{fmt(balance)} ر.ي</span>
-        </div>
+        {/* ملخص وضع الرصيد الحالي */}
+        {Number(balance) > 0.01 ? (
+          <div className="bg-rose-50 border-2 border-rose-200 rounded-lg p-3 mb-3 text-sm flex justify-between items-center">
+            <span className="font-semibold text-slate-700">مستحق للتاجر (علينا):</span>
+            <span className="font-bold text-rose-700 text-lg">{fmt(balance)} ر.ي</span>
+          </div>
+        ) : Number(balance) < -0.01 ? (
+          <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-3 mb-3 text-sm flex justify-between items-center">
+            <span className="font-semibold text-slate-700">مستحق لنا عند التاجر:</span>
+            <span className="font-bold text-emerald-700 text-lg">{fmt(Math.abs(Number(balance)))} ر.ي</span>
+          </div>
+        ) : (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 text-sm text-center text-slate-500">
+            الرصيد مسدّد بالكامل
+          </div>
+        )}
         <div className="space-y-3">
           <div><Label>المبلغ</Label>
             <Input type="number" step="0.01" autoFocus value={form.amount}

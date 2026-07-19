@@ -39,14 +39,19 @@ def supplier_statement(supplier_id: str, db=Depends(get_db), _u=Depends(require_
     for p in db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None}).sort("created_at", 1):
         pm = p.get("payment_method", "credit")
         total_p = float(p.get("total", 0))
-        paid_now = float(p.get("paid_amount", 0)) if pm == "credit" else total_p
+        # المبلغ الفعلي المدفوع عند إنشاء الفاتورة
+        # نقدي/بنكي بدون paid_amount صريح → مسدّد كاملاً
+        # آجل بدون paid_amount → صفر
+        # أي فاتورة بـ paid_amount > 0 → استخدم القيمة المخزّنة
+        pa = float(p.get("paid_amount") or 0)
+        paid_now = pa if (pa > 0 or pm == "credit") else total_p
         op_no = p.get("ref_no") or p.get("invoice_no") or p["_id"]
         entries.append({
             "type": "purchase",
             "date": p.get("created_at"),
             "op_no": op_no,
-            "debit": paid_now,          # الجزء المدفوع فوراً (نقداً = كامل المبلغ)
-            "credit": total_p,          # قيمة الفاتورة
+            "debit": paid_now,          # الجزء المدفوع فوراً
+            "credit": total_p,          # قيمة الفاتورة كاملاً
             "payment_method": pm,
         })
 
@@ -279,11 +284,16 @@ def create_purchase(payload: PurchaseCreate, request: Request,
             "total": it["line_total"],
         })
 
-    if payload.payment_method == "credit":
-        credit_amount = total - float(payload.paid_amount or 0)
-        if credit_amount > 0:
-            db[C.suppliers].update_one({"_id": payload.supplier_id},
-                                       {"$inc": {"balance": credit_amount}})
+    # تحديث رصيد التاجر بالمبلغ المتبقي (قيمة الفاتورة - المدفوع الآن)
+    # يشمل جميع طرق الدفع — نقدي/بنكي بدون paid_amount صريح = مسدّد كاملاً
+    _pm = payload.payment_method
+    _pa = float(payload.paid_amount or 0)
+    _eff = _pa if (_pa > 0 or _pm == "credit") else total
+    balance_delta = total - _eff
+    if abs(balance_delta) > 0.001:
+        db[C.suppliers].update_one({"_id": payload.supplier_id},
+                                   {"$inc": {"balance": balance_delta},
+                                    "$set": {"updated_at": now}})
 
     log_action(db, current["_id"], "purchase_created", "purchases", pur_id,
                after={"ref_no": ref_no, "total": str(total)}, request=request)

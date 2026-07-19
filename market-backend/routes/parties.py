@@ -172,14 +172,25 @@ def get_supplier(supplier_id: str, db = Depends(get_db), _u = Depends(require_ma
     all_purchases = list(db[C.purchases].find({"supplier_id": supplier_id, "deleted_at": None}))
     total_purchases_all = sum(p.get("total", 0) for p in all_purchases)
 
-    # الرصيد المستحق الصحيح:
-    # نحسب فقط المشتريات الآجلة (credit) لأن النقدي يُسدَّد فوراً
-    # المديونية = مجموع (إجمالي فاتورة - المدفوع عند الإنشاء) للمشتريات الآجلة فقط
-    # ثم نطرح منها: المدفوعات اللاحقة + المرتجعات
+    # ─── دالة مساعدة: المبلغ الفعلي المدفوع عند إنشاء الفاتورة ─────────────────
+    # منطق التوافق مع البيانات القديمة:
+    # • نقدي/بنكي بدون paid_amount صريح → اعتبر مسدّداً كاملاً
+    # • آجل (credit) بدون paid_amount → اعتبر صفر (لم يُدفع)
+    # • أي فاتورة بـ paid_amount > 0 → استخدم القيمة المخزّنة
+    def _eff_paid(p):
+        pm = p.get("payment_method", "credit")
+        pa = float(p.get("paid_amount") or 0)
+        ttl = float(p.get("total", 0))
+        if pa > 0:
+            return pa
+        return ttl if pm != "credit" else 0.0
+
+    # الرصيد المستحق الصحيح (يشمل جميع المشتريات بجميع طرق الدفع)
+    # موجب  = نحن مدينون للتاجر (فواتير لم تُسدَّد بالكامل)
+    # سالب  = دفعنا أكثر مما علينا → مستحق لنا عند التاجر
     total_credit_unpaid = sum(
-        float(p.get("total", 0)) - float(p.get("paid_amount", 0))
+        float(p.get("total", 0)) - _eff_paid(p)
         for p in all_purchases
-        if p.get("payment_method", "credit") == "credit"
     )
     total_paid = sum(
         p.get("amount", 0) for p in db[C.supplier_payments].find({"supplier_id": supplier_id})
@@ -187,9 +198,6 @@ def get_supplier(supplier_id: str, db = Depends(get_db), _u = Depends(require_ma
     total_returns = sum(
         r.get("total", 0) for r in db[C.supplier_returns].find({"supplier_id": supplier_id})
     )
-    # الرصيد المستحق للتاجر:
-    # موجب  = نحن مدينون للتاجر (فواتير آجلة غير مسددة)
-    # سالب  = دفعنا أكثر مما علينا (رصيد دائن للشركة عند التاجر)
     computed_balance = total_credit_unpaid - total_paid - total_returns
 
     return {
