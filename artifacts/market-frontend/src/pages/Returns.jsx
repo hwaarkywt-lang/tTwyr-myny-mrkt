@@ -30,7 +30,7 @@ const TYPE_LABELS = {
 
 export default function Returns() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const [tab, setTab] = useState('pending');
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);

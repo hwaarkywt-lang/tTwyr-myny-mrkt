@@ -431,38 +431,202 @@ def search_sales_for_return(
     db=Depends(get_db),
     _u=Depends(require_cashier),
 ):
-    """Find completed sales by invoice_no for the return UI."""
+    """Find completed sales by invoice_no or customer name/phone for the return UI."""
     filt: dict = {"deleted_at": None, "status": "completed"}
+
+    customer_ids: Optional[List[str]] = None
     if q:
-        filt["invoice_no"] = {"$regex": q, "$options": "i"}
+        # Try to match customers by name or phone first
+        cust_rows = list(db[C.customers].find(
+            {"$or": [
+                {"full_name": {"$regex": q, "$options": "i"}},
+                {"phone": {"$regex": q, "$options": "i"}},
+            ]},
+            {"_id": 1},
+        ))
+        customer_ids = [c["_id"] for c in cust_rows]
+
+        if customer_ids:
+            # Match by invoice_no OR customer_id
+            filt["$or"] = [
+                {"invoice_no": {"$regex": q, "$options": "i"}},
+                {"customer_id": {"$in": customer_ids}},
+            ]
+        else:
+            filt["invoice_no"] = {"$regex": q, "$options": "i"}
+
     rows = list(db[C.sales].find(filt).sort("created_at", -1).limit(limit))
-    return [{
-        "id": s["_id"],
-        "sale_id": s["_id"],
-        "invoice_no": s.get("invoice_no"),
-        "total": s.get("total", 0),
-        "payment_method": s.get("payment_method"),
-        "customer_id": s.get("customer_id"),
-        "created_at": s.get("created_at"),
-    } for s in rows]
+
+    # Enrich with customer name
+    cust_map: dict = {}
+    cust_ids_needed = list({s["customer_id"] for s in rows if s.get("customer_id")})
+    if cust_ids_needed:
+        for c in db[C.customers].find({"_id": {"$in": cust_ids_needed}}, {"full_name": 1, "phone": 1}):
+            cust_map[c["_id"]] = c
+
+    out = []
+    for s in rows:
+        cust = cust_map.get(s.get("customer_id"))
+        out.append({
+            "id": s["_id"],
+            "sale_id": s["_id"],
+            "invoice_no": s.get("invoice_no"),
+            "total": s.get("total", 0),
+            "payment_method": s.get("payment_method"),
+            "customer_id": s.get("customer_id"),
+            "customer_name": cust.get("full_name") if cust else None,
+            "customer_phone": cust.get("phone") if cust else None,
+            "created_at": s.get("created_at"),
+        })
+    return out
 
 
 # ──────────────── POST /api/sales-exchanges ──────────────────────────
 
-class ExchangePayload(BaseModel):
-    return_payload: SaleReturnCreate
-    new_sale_id: Optional[str] = None
+class ExchangeReturnItemIn(BaseModel):
+    sale_item_id: str
+    quantity: float = Field(..., gt=0)
+
+
+class ExchangeNewItemIn(BaseModel):
+    product_id: str
+    quantity: float = Field(..., gt=0)
+
+
+class ExchangePayloadV2(BaseModel):
+    sale_id: str
+    return_items: List[ExchangeReturnItemIn]
+    new_items: List[ExchangeNewItemIn]
+    settlement: str = Field(default="cash")   # cash | cash_refund | credit
+    reason: Optional[str] = None
 
 
 @router.post("/sales-exchanges", status_code=201)
 def create_exchange(
-    payload: ExchangePayload,
+    payload: ExchangePayloadV2,
     db=Depends(get_db),
     current=Depends(require_cashier),
 ):
-    """Exchange = instant return + already-created new sale."""
-    r = instant_return(payload.return_payload, db, current)
-    return {**r, "new_sale_id": payload.new_sale_id}
+    """Exchange = instant return + new sale for replacement items."""
+    from decimal import Decimal as D
+
+    # ── 1. Instant return for the returned items ──────────────────────
+    return_payload = SaleReturnCreate(
+        sale_id=payload.sale_id,
+        items=[ReturnItemIn(sale_item_id=it.sale_item_id, quantity=it.quantity)
+               for it in payload.return_items],
+        reason=payload.reason or "استبدال POS",
+        return_type="cash",
+    )
+    ret_result = instant_return(return_payload, db, current)
+    return_value = float(ret_result["total"])
+
+    # ── 2. Build new sale for the exchange items ──────────────────────
+    now = datetime.now(timezone.utc)
+    new_total = D("0")
+    new_item_docs = []
+    new_sale_id = new_id()
+
+    # Get original sale's customer
+    orig_sale = db[C.sales].find_one({"_id": payload.sale_id})
+    customer_id = orig_sale.get("customer_id") if orig_sale else None
+
+    for it in payload.new_items:
+        prod = db[C.products].find_one({"_id": it.product_id, "deleted_at": None})
+        if not prod:
+            raise HTTPException(404, f"منتج {it.product_id} غير موجود")
+        sale_price = D(str(prod.get("sale_price", 0)))
+        qty = D(str(it.quantity))
+        line_total = sale_price * qty
+        new_total += line_total
+        new_item_docs.append({
+            "_id": new_id(), "sale_id": new_sale_id,
+            "product_id": it.product_id,
+            "quantity": float(qty), "unit_price": float(sale_price),
+            "discount": 0.0, "tax": 0.0, "total": float(line_total),
+            "created_at": now,
+        })
+
+    new_total_f = float(new_total)
+    diff = round(new_total_f - return_value, 4)
+
+    # Determine payment_method for the new sale
+    if diff > 0:
+        new_pm = "cash"            # customer pays extra in cash
+    elif diff < 0 and payload.settlement == "credit" and customer_id:
+        new_pm = "credit"          # credit customer for excess return value
+    else:
+        new_pm = "cash"            # no difference or cash_refund
+
+    # Generate invoice no
+    today = now.strftime("%Y%m%d")
+    inv_count = db[C.sales].count_documents({"invoice_no": {"$regex": f"^INV-{today}-"}})
+    new_invoice_no = f"INV-{today}-{inv_count + 1:05d}"
+
+    # Insert new sale
+    if new_item_docs:
+        db[C.sales].insert_one({
+            "_id": new_sale_id, "invoice_no": new_invoice_no,
+            "shift_id": None, "cashier_id": current["_id"],
+            "customer_id": customer_id if new_pm == "credit" else None,
+            "subtotal": new_total_f, "discount_amount": 0.0, "tax_amount": 0.0,
+            "total": new_total_f,
+            "paid_amount": new_total_f if new_pm != "credit" else 0.0,
+            "change_amount": 0.0,
+            "payment_method": new_pm,
+            "status": "completed",
+            "notes": f"استبدال من {orig_sale.get('invoice_no', '')}",
+            "created_at": now, "updated_at": now, "deleted_at": None,
+        })
+        db[C.sale_items].insert_many(new_item_docs)
+
+        # Deduct stock + inventory movements
+        for it in payload.new_items:
+            db[C.products].update_one({"_id": it.product_id},
+                {"$inc": {"current_stock": -float(it.quantity)}, "$set": {"updated_at": now}})
+            db[C.inventory_movements].insert_one({
+                "_id": new_id(), "product_id": it.product_id,
+                "movement_type": "sale",
+                "quantity": -float(it.quantity),
+                "reference_table": "sales", "reference_id": new_sale_id,
+                "user_id": current["_id"],
+                "notes": f"استبدال {new_invoice_no}",
+                "created_at": now,
+            })
+
+        # If credit settlement (diff < 0 and credit mode) → decrease customer balance
+        if new_pm == "credit" and customer_id and diff > 0:
+            db[C.customers].update_one(
+                {"_id": customer_id},
+                {"$inc": {"balance": new_total_f}, "$set": {"updated_at": now}},
+            )
+        elif payload.settlement == "credit" and customer_id and diff < 0:
+            # Store owes customer; credit their account (reduce their debt)
+            db[C.customers].update_one(
+                {"_id": customer_id},
+                {"$inc": {"balance": diff}, "$set": {"updated_at": now}},
+            )
+
+    # ── 3. Build response ─────────────────────────────────────────────
+    if diff > 0:
+        msg = f"العميل يدفع فرق {abs(diff):.2f} ر.ي نقداً"
+    elif diff < 0:
+        if payload.settlement == "credit" and customer_id:
+            msg = f"تم إضافة {abs(diff):.2f} ر.ي كرصيد دائن للعميل"
+        else:
+            msg = f"المحل يرد {abs(diff):.2f} ر.ي نقداً للعميل"
+    else:
+        msg = "استبدال بدون فرق سعر"
+
+    return {
+        "return": ret_result,
+        "new_invoice_no": new_invoice_no if new_item_docs else None,
+        "return_value": return_value,
+        "new_total": new_total_f,
+        "diff": diff,
+        "settlement": payload.settlement,
+        "message": msg,
+    }
 
 
 # ──────────────── GET /api/supplier-returns ──────────────────────────

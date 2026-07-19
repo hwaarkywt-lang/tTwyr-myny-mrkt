@@ -3,7 +3,7 @@ import {
   Search, Plus, Minus, X, ShoppingCart, Banknote,
   CreditCard, Wallet, Building2, Smartphone, ArrowLeftRight, Clock,
   UserPlus, RotateCcw, Calendar, User, Star, Receipt, Trash2,
-  CheckCircle2, AlertCircle,
+  CheckCircle2, AlertCircle, PauseCircle, PlayCircle,
 } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -29,6 +29,16 @@ const PAYMENT_METHODS = [
   { v: 'credit',        l: 'آجل',    icon: Clock,          color: 'from-rose-500 to-rose-600',       ring: 'ring-rose-400' },
 ];
 
+const HELD_KEY = 'pos_held_invoices';
+
+function loadHeld() {
+  try { return JSON.parse(localStorage.getItem(HELD_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveHeld(list) {
+  try { localStorage.setItem(HELD_KEY, JSON.stringify(list)); } catch {}
+}
+
 export default function POS() {
   const { user } = useAuth();
 
@@ -46,6 +56,8 @@ export default function POS() {
   const [lastInvoice, setLastInvoice]           = useState(null);
   const [returnsOpen, setReturnsOpen]           = useState(false);
   const [now, setNow]                           = useState(new Date());
+  const [heldInvoices, setHeldInvoices]         = useState(loadHeld);
+  const [showHeldDialog, setShowHeldDialog]     = useState(false);
   const barcodeRef = useRef(null);
   const searchRef  = useRef(null);
 
@@ -141,6 +153,45 @@ export default function POS() {
 
   const removeItem = (idx) => setCart((prev) => prev.filter((_, i) => i !== idx));
   const clearCart  = () => { if (window.confirm('هل تريد مسح السلة كاملاً؟')) setCart([]); };
+
+  // ── تعليق الفاتورة ──────────────────────────────────────────────
+  const holdInvoice = () => {
+    if (cart.length === 0) { toast({ title: 'السلة فارغة — لا يوجد شيء لتعليقه', variant: 'destructive' }); return; }
+    const held = {
+      id: Date.now(),
+      cart: [...cart],
+      paymentMethod,
+      creditCustomer,
+      savedAt: new Date().toISOString(),
+      total: cart.reduce((s, it) => s + it.quantity * it.unit_price, 0),
+    };
+    const updated = [...heldInvoices, held];
+    setHeldInvoices(updated);
+    saveHeld(updated);
+    setCart([]);
+    setCreditCustomer(null);
+    setPaymentMethod('cash');
+    toast({ title: `✅ تم تعليق الفاتورة (${held.cart.length} صنف)`, description: 'يمكنك استئنافها من زر الفواتير المعلقة' });
+  };
+
+  const resumeHeld = (held) => {
+    if (cart.length > 0 && !window.confirm('السلة الحالية ستُستبدل بالفاتورة المعلقة. متابعة؟')) return;
+    setCart(held.cart);
+    setPaymentMethod(held.paymentMethod || 'cash');
+    setCreditCustomer(held.creditCustomer || null);
+    const updated = heldInvoices.filter((h) => h.id !== held.id);
+    setHeldInvoices(updated);
+    saveHeld(updated);
+    setShowHeldDialog(false);
+    toast({ title: 'تم استئناف الفاتورة المعلقة' });
+  };
+
+  const discardHeld = (id) => {
+    if (!window.confirm('حذف هذه الفاتورة المعلقة؟')) return;
+    const updated = heldInvoices.filter((h) => h.id !== id);
+    setHeldInvoices(updated);
+    saveHeld(updated);
+  };
 
   const total = cart.reduce((s, it) => s + it.quantity * it.unit_price, 0);
 
@@ -249,6 +300,28 @@ export default function POS() {
 
         {/* أزرار الإجراءات + معلومات المستخدم */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* زر تعليق الفاتورة */}
+          <Button
+            onClick={holdInvoice}
+            disabled={cart.length === 0}
+            title="تعليق الفاتورة الحالية لاستئنافها لاحقاً"
+            className="h-9 bg-slate-700 hover:bg-yellow-500 hover:text-slate-900 text-white border border-slate-600 transition-all text-xs px-3 font-semibold disabled:opacity-40"
+          >
+            <PauseCircle className="w-3.5 h-3.5 ml-1" /> تعليق
+          </Button>
+          {/* زر الفواتير المعلقة */}
+          <Button
+            onClick={() => setShowHeldDialog(true)}
+            title="الفواتير المعلقة"
+            className="relative h-9 bg-slate-700 hover:bg-yellow-400 hover:text-slate-900 text-white border border-slate-600 transition-all text-xs px-3 font-semibold"
+          >
+            <PlayCircle className="w-3.5 h-3.5 ml-1" /> معلقة
+            {heldInvoices.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-yellow-400 text-slate-900 rounded-full text-[9px] font-extrabold flex items-center justify-center">
+                {heldInvoices.length}
+              </span>
+            )}
+          </Button>
           <Button
             onClick={() => setReturnsOpen(true)}
             data-testid="pos-open-returns-btn"
@@ -601,6 +674,65 @@ export default function POS() {
             .then((r) => setFeaturedProducts(r.data)).catch(() => {});
         }}
       />
+
+      {/* ═══════════ نافذة الفواتير المعلقة ═══════════ */}
+      <Dialog open={showHeldDialog} onOpenChange={setShowHeldDialog}>
+        <DialogContent className="max-w-lg" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PauseCircle className="w-5 h-5 text-yellow-500" />
+              الفواتير المعلقة ({heldInvoices.length})
+            </DialogTitle>
+          </DialogHeader>
+          {heldInvoices.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">
+              <PauseCircle className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p>لا توجد فواتير معلقة</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {heldInvoices.map((held) => (
+                <div key={held.id}
+                  className="bg-slate-50 border-2 border-slate-200 rounded-xl p-3 hover:border-yellow-400 transition-all"
+                >
+                  <div className="flex justify-between items-start mb-1.5">
+                    <div>
+                      <p className="font-bold text-slate-900 text-sm">
+                        {held.cart.length} صنف
+                        {held.creditCustomer ? ` — ${held.creditCustomer.full_name}` : ''}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {new Date(held.savedAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
+                      </p>
+                    </div>
+                    <div className="text-left">
+                      <p className="font-extrabold text-amber-600 text-lg">{fmt(held.total)} ر.ي</p>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500 mb-2 line-clamp-1">
+                    {held.cart.map((i) => i.name).join(' · ')}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => resumeHeld(held)}
+                      className="flex-1 h-8 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-xs font-bold"
+                    >
+                      <PlayCircle className="w-3.5 h-3.5 ml-1" /> استئناف
+                    </Button>
+                    <Button
+                      onClick={() => discardHeld(held.id)}
+                      variant="outline"
+                      className="h-8 border-rose-300 text-rose-600 hover:bg-rose-50 text-xs"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* نافذة اختيار العميل */}
       <Dialog open={showCustomerPicker} onOpenChange={setShowCustomerPicker}>
