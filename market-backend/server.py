@@ -47,7 +47,7 @@ from routes.notifications import router as notifications_router
 from routes.customer_accounts import router as customer_accounts_router
 from routes.supplier_accounts import router as supplier_accounts_router
 from routes.sales_returns import router as sales_returns_router
-from routes.backups import router as backups_router
+from routes.backups import router as backups_router, start_scheduler, stop_scheduler
 from routes.audit import router as audit_router
 from routes.day_close import router as day_close_router
 from routes.system import router as system_router
@@ -148,3 +148,15 @@ def on_startup():
         _seed_data()
     except Exception as e:
         logger.error(f"Seeding failed: {e}")
+    try:
+        start_scheduler()
+    except Exception as e:
+        logger.error(f"Backup scheduler failed to start: {e}")
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    try:
+        stop_scheduler()
+    except Exception:
+        pass

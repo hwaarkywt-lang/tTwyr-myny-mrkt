@@ -1,9 +1,15 @@
-"""Backup management — Pure-Python JSON export (works with mongomock & real MongoDB)."""
+"""Backup management — automated APScheduler + manual trigger + Google Drive stub."""
 import gzip
 import json
 import os
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -16,12 +22,42 @@ from utils.audit import log_action
 from utils.security import verify_password
 
 router = APIRouter(prefix="/api/admin/backups", tags=["backups"])
+logger = logging.getLogger(__name__)
 
-# ── storage directory ─────────────────────────────────────────────────────────
+# ── directories & config paths ───────────────────────────────────────────────
 _DEFAULT_DIR = Path(os.environ.get("BACKUP_DIR", "")).expanduser() \
                if os.environ.get("BACKUP_DIR") else None
-# Use workspace-relative writable path (avoids read-only /app in Replit)
-BACKUP_DIR = _DEFAULT_DIR or Path(__file__).resolve().parent.parent / "data" / "backups"
+BACKUP_DIR   = _DEFAULT_DIR or Path(__file__).resolve().parent.parent / "data" / "backups"
+SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "backup_settings.json"
+
+DEFAULT_SETTINGS: dict = {
+    "local_interval_hours": 2,
+    "daily_midnight": True,
+    "retention_count": 30,
+    "drive_enabled": False,
+    "drive_interval_hours": 4,
+}
+
+# ── module-level scheduler state ─────────────────────────────────────────────
+_scheduler: Optional[BackgroundScheduler] = None
+_last_auto_backup: Optional[str] = None
+_last_auto_error: Optional[str] = None
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _load_settings() -> dict:
+    try:
+        if SETTINGS_FILE.exists():
+            return {**DEFAULT_SETTINGS, **json.loads(SETTINGS_FILE.read_text())}
+    except Exception:
+        pass
+    return dict(DEFAULT_SETTINGS)
+
+
+def _save_settings(settings: dict):
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.write_text(json.dumps(settings, ensure_ascii=False, indent=2))
 
 
 def _human(n: float) -> str:
@@ -52,7 +88,14 @@ def _list_backups():
     return sorted(files, key=lambda f: f.stat().st_mtime, reverse=True)
 
 
-# ── All collections to export ─────────────────────────────────────────────────
+def _infer_trigger(name: str) -> str:
+    if "_auto." in name:  return "auto"
+    if "_daily." in name: return "daily"
+    if "_safety." in name: return "safety"
+    return "manual"
+
+
+# ── collections to export ─────────────────────────────────────────────────────
 _COLLECTIONS = [
     C.users, C.settings, C.categories, C.products, C.barcodes, C.product_batches,
     C.customers, C.suppliers,
@@ -70,7 +113,6 @@ _COLLECTIONS = [
 
 
 def _json_default(obj):
-    """JSON serialiser for non-serialisable types (datetime, Decimal, etc.)."""
     if isinstance(obj, datetime):
         return obj.isoformat()
     try:
@@ -79,114 +121,227 @@ def _json_default(obj):
             return float(obj)
     except ImportError:
         pass
-    # fallback — turn anything else to string
     return str(obj)
 
 
-def _do_backup(db) -> Path:
-    """Export every collection to a gzipped JSON file. Returns the file path."""
+def _do_backup(db, trigger: str = "manual") -> Path:
+    """Export every collection to a gzipped JSON file and enforce retention."""
+    global _last_auto_backup, _last_auto_error
     BACKUP_DIR.mkdir(exist_ok=True, parents=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filepath = BACKUP_DIR / f"market_db_{timestamp}.json.gz"
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filepath = BACKUP_DIR / f"market_db_{ts}_{trigger}.json.gz"
 
     data: dict = {}
     for col_name in _COLLECTIONS:
         try:
-            col_attr = getattr(C, col_name) if hasattr(C, col_name) else col_name
-        except Exception:
-            col_attr = col_name
-        try:
             rows = list(db[col_name].find())
-            # convert _id → id for readability; keep _id as well
-            serialisable = []
-            for r in rows:
-                rec = {}
-                for k, v in r.items():
-                    rec[k] = v
-                serialisable.append(rec)
-            data[col_name] = serialisable
+            data[col_name] = [{k: v for k, v in r.items()} for r in rows]
         except Exception:
             data[col_name] = []
 
     meta = {
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "trigger": trigger,
         "collections": len(data),
         "total_documents": sum(len(v) for v in data.values()),
-        "format_version": "1.0",
+        "format_version": "1.1",
     }
-    payload = {"meta": meta, "data": data}
-
     with gzip.open(str(filepath), "wt", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, default=_json_default, indent=None)
+        json.dump({"meta": meta, "data": data}, fh,
+                  ensure_ascii=False, default=_json_default, indent=None)
 
-    # Delete oldest beyond retention=14
-    all_files = _list_backups()
-    for old in all_files[14:]:
-        try:
-            old.unlink()
-        except Exception:
-            pass
+    # Enforce retention
+    cfg   = _load_settings()
+    keep  = int(cfg.get("retention_count", 30))
+    for old in _list_backups()[keep:]:
+        try: old.unlink()
+        except Exception: pass
 
+    if trigger not in ("manual", "safety"):
+        _last_auto_backup = datetime.now(timezone.utc).isoformat()
+        _last_auto_error  = None
+
+    logger.info("Backup created: %s (%.1f KB)", filepath.name,
+                filepath.stat().st_size / 1024)
     return filepath
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+def _auto_backup_job(trigger: str = "auto"):
+    """Scheduled job — gets its own DB reference."""
+    global _last_auto_error
+    try:
+        from database import db as _db
+        _do_backup(_db, trigger=trigger)
+    except Exception as exc:
+        _last_auto_error = str(exc)
+        logger.error("Auto backup (%s) failed: %s", trigger, exc)
+
+
+# ── Scheduler lifecycle (called from server.py) ───────────────────────────────
+
+def _next_run(job_id: str) -> Optional[str]:
+    if _scheduler is None:
+        return None
+    job = _scheduler.get_job(job_id)
+    if job is None or job.next_run_time is None:
+        return None
+    return job.next_run_time.isoformat()
+
+
+def start_scheduler():
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        return
+    cfg = _load_settings()
+    _scheduler = BackgroundScheduler(timezone="UTC")
+    _add_jobs(cfg)
+    _scheduler.start()
+    logger.info("Backup scheduler started — interval=%sh midnight=%s",
+                cfg.get("local_interval_hours", 2), cfg.get("daily_midnight", True))
+
+
+def stop_scheduler():
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        logger.info("Backup scheduler stopped")
+
+
+def _add_jobs(cfg: dict):
+    assert _scheduler is not None
+    interval_h = int(cfg.get("local_interval_hours", 2))
+    _scheduler.add_job(
+        _auto_backup_job,
+        trigger=IntervalTrigger(hours=interval_h),
+        id="local_interval",
+        kwargs={"trigger": "auto"},
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    if cfg.get("daily_midnight", True):
+        _scheduler.add_job(
+            _auto_backup_job,
+            trigger=CronTrigger(hour=0, minute=0, timezone="UTC"),
+            id="daily_midnight",
+            kwargs={"trigger": "daily"},
+            replace_existing=True,
+            misfire_grace_time=600,
+        )
+
+
+def _reschedule(cfg: dict):
+    if _scheduler is None or not _scheduler.running:
+        return
+    interval_h = int(cfg.get("local_interval_hours", 2))
+    _scheduler.reschedule_job("local_interval",
+                               trigger=IntervalTrigger(hours=interval_h))
+    if cfg.get("daily_midnight", True):
+        try:
+            _scheduler.reschedule_job(
+                "daily_midnight",
+                trigger=CronTrigger(hour=0, minute=0, timezone="UTC"))
+        except Exception:
+            _scheduler.add_job(
+                _auto_backup_job,
+                trigger=CronTrigger(hour=0, minute=0, timezone="UTC"),
+                id="daily_midnight",
+                kwargs={"trigger": "daily"},
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
+    else:
+        try: _scheduler.remove_job("daily_midnight")
+        except Exception: pass
+
+
+# ── Settings endpoints ────────────────────────────────────────────────────────
+
+@router.get("/settings")
+def get_settings(_u=Depends(require_admin)):
+    return _load_settings()
+
+
+class BackupSettingsIn(BaseModel):
+    local_interval_hours: int = Field(2, ge=1, le=24)
+    daily_midnight: bool = True
+    retention_count: int = Field(30, ge=5, le=100)
+    drive_enabled: bool = False
+    drive_interval_hours: int = Field(4, ge=1, le=24)
+
+
+@router.put("/settings")
+def update_settings(payload: BackupSettingsIn, _u=Depends(require_admin)):
+    cfg = payload.model_dump()
+    _save_settings(cfg)
+    try: _reschedule(cfg)
+    except Exception as e: logger.warning("Reschedule failed: %s", e)
+    return cfg
+
+
+# ── Status / List ─────────────────────────────────────────────────────────────
+
+@router.get("/status")
+def get_status(_u=Depends(require_admin)):
+    files = _list_backups()
+    cfg   = _load_settings()
+    sched = _scheduler is not None and _scheduler.running
+    base  = {
+        "scheduler_running": sched,
+        "next_backup_local": _next_run("local_interval"),
+        "next_backup_daily": _next_run("daily_midnight"),
+        "last_auto_backup": _last_auto_backup,
+        "last_auto_error": _last_auto_error,
+        "schedule": f"كل {cfg.get('local_interval_hours', 2)} ساعة تلقائياً",
+        "retention_count": cfg.get("retention_count", 30),
+        "drive_enabled": cfg.get("drive_enabled", False),
+    }
+    if not files:
+        return {**base, "count": 0, "total_size": 0, "total_size_human": "0 B", "latest": None}
+    latest = files[0]
+    mtime  = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
+    return {
+        **base,
+        "count": len(files),
+        "total_size": sum(f.stat().st_size for f in files),
+        "total_size_human": _human(sum(f.stat().st_size for f in files)),
+        "latest": {
+            "name": latest.name,
+            "created_at": mtime.isoformat(),
+            "age_seconds": int((datetime.now(timezone.utc) - mtime).total_seconds()),
+        },
+    }
+
 
 @router.get("")
 def list_backups(_u=Depends(require_admin)):
-    files = _list_backups()
     return [
         {
             "name": f.name,
             "size": f.stat().st_size,
             "size_human": _human(f.stat().st_size),
             "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+            "trigger": _infer_trigger(f.name),
+            "drive_status": "not_configured",
         }
-        for f in files
+        for f in _list_backups()
     ]
 
 
-@router.get("/status")
-def status(_u=Depends(require_admin)):
-    files = _list_backups()
-    if not files:
-        return {"count": 0, "total_size": 0, "latest": None, "schedule": "يدوي / عند الطلب"}
-    latest = files[0]
-    total = sum(f.stat().st_size for f in files)
-    mtime = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
-    return {
-        "count": len(files),
-        "total_size": total,
-        "total_size_human": _human(total),
-        "latest": {
-            "name": latest.name,
-            "created_at": mtime.isoformat(),
-            "age_seconds": int((datetime.now(timezone.utc) - mtime).total_seconds()),
-        },
-        "schedule": "يدوي / عند الطلب",
-        "retention_days": 14,
-    }
-
+# ── Run / Download / Delete / Restore ────────────────────────────────────────
 
 @router.post("/run")
 def run_now(request: Request, db=Depends(get_db), current=Depends(require_admin)):
-    """Create a new JSON backup of every collection."""
     try:
-        filepath = _do_backup(db)
-        size_human = _human(filepath.stat().st_size)
-        log_action(
-            db, current["_id"], "backup_run", "system", None,
-            after={"file": filepath.name, "size": size_human}, request=request,
-        )
-        return {
-            "detail": f"✅ النسخة الاحتياطية تمت بنجاح — {size_human}",
-            "file": filepath.name,
-            "size": size_human,
-        }
+        fp  = _do_backup(db, trigger="manual")
+        sh  = _human(fp.stat().st_size)
+        log_action(db, current["_id"], "backup_run", "system", None,
+                   after={"file": fp.name, "size": sh}, request=request)
+        return {"detail": f"✅ النسخة الاحتياطية تمت بنجاح — {sh}",
+                "file": fp.name, "size": sh}
     except Exception as exc:
         log_action(db, current["_id"], "backup_failed", "system", None,
                    after={"error": str(exc)[:400]}, request=request)
-        raise HTTPException(status_code=500, detail=f"فشل إنشاء النسخة الاحتياطية: {exc}")
+        raise HTTPException(500, f"فشل إنشاء النسخة الاحتياطية: {exc}")
 
 
 @router.get("/download/{filename}")
@@ -200,7 +355,8 @@ def download(filename: str, _u=Depends(require_admin)):
 
 
 @router.delete("/{filename}", status_code=204)
-def delete(filename: str, request: Request, db=Depends(get_db), current=Depends(require_admin)):
+def delete_backup(filename: str, request: Request,
+                  db=Depends(get_db), current=Depends(require_admin)):
     if not _valid_name(filename):
         raise HTTPException(400, "اسم ملف غير صحيح")
     fp = BACKUP_DIR / filename
@@ -214,13 +370,13 @@ def delete(filename: str, request: Request, db=Depends(get_db), current=Depends(
 
 
 class RestorePayload(BaseModel):
-    confirm: str = Field(..., description="must equal 'RESTORE_DATABASE'")
+    confirm: str          = Field(..., description="must equal 'RESTORE_DATABASE'")
     current_password: str = Field(..., min_length=1)
 
 
 @router.post("/restore/{filename}")
-def restore(filename: str, payload: RestorePayload, request: Request,
-            db=Depends(get_db), current=Depends(require_admin)):
+def restore(filename: str, payload: RestorePayload,
+            request: Request, db=Depends(get_db), current=Depends(require_admin)):
     if not _valid_name(filename):
         raise HTTPException(400, "اسم ملف غير صحيح")
     fp = BACKUP_DIR / filename
@@ -230,44 +386,38 @@ def restore(filename: str, payload: RestorePayload, request: Request,
         raise HTTPException(400, "عبارة التأكيد غير صحيحة")
     if not verify_password(payload.current_password, current["password_hash"]):
         raise HTTPException(401, "كلمة المرور غير صحيحة")
-
-    # Only JSON backups are restorable
     if not filename.endswith(".json.gz"):
-        raise HTTPException(400, "الاستعادة متاحة فقط لملفات .json.gz — الملفات القديمة (.sql.gz / .archive.gz) للتحميل فقط")
+        raise HTTPException(400, "الاستعادة متاحة فقط لملفات .json.gz")
 
-    # Safety backup first
-    safety_name = None
+    # Create safety backup first
+    safety_name = "FAILED"
     try:
-        safety_fp = _do_backup(db)
-        safety_name = safety_fp.name
-    except Exception:
-        safety_name = "FAILED"
+        safety_name = _do_backup(db, trigger="safety").name
+    except Exception: pass
 
-    # Load backup and restore
     try:
         with gzip.open(str(fp), "rt", encoding="utf-8") as fh:
             backup = json.load(fh)
     except Exception as exc:
         raise HTTPException(400, f"تعذّر قراءة ملف النسخة الاحتياطية: {exc}")
 
-    col_data: dict = backup.get("data", {})
-    restored_cols = 0
+    col_data = backup.get("data", {})
+    restored = 0
     for col_name, rows in col_data.items():
         try:
-            # Always drop to remove stale data, even when backup has 0 rows
             db[col_name].drop()
             if rows:
                 db[col_name].insert_many(rows)
-            restored_cols += 1
+            restored += 1
         except Exception:
             pass
 
     log_action(db, current["_id"], "restore_success", "system", None,
                after={"file": filename, "safety_backup": safety_name,
-                      "collections_restored": restored_cols}, request=request)
+                      "collections_restored": restored}, request=request)
     return {
         "detail": "✅ تمت الاستعادة بنجاح — يرجى تسجيل الدخول من جديد",
         "restored_from": filename,
-        "collections_restored": restored_cols,
+        "collections_restored": restored,
         "safety_backup_created": safety_name,
     }
