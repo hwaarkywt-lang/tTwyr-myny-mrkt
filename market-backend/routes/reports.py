@@ -75,6 +75,42 @@ def profits(date_from: Optional[str] = None, date_to: Optional[str] = None,
             "items_count": len(items)}
 
 
+@router.get("/payment-methods")
+def payment_methods_report(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db = Depends(get_db), _u = Depends(require_manager),
+):
+    """تقرير طرق الدفع مع تجميع وإحصائيات مفصّلة."""
+    rng = _date_range(date_from, date_to)
+    match_f = {"status": "completed", "deleted_at": None}
+    if rng:
+        match_f["created_at"] = rng
+    pipeline = [
+        {"$match": match_f},
+        {"$group": {
+            "_id": "$payment_method",
+            "total": {"$sum": "$total"},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"total": -1}},
+    ]
+    rows = list(db[C.sales].aggregate(pipeline))
+    grand_total = sum(float(r["total"]) for r in rows)
+    items = []
+    for r in rows:
+        t = float(r["total"])
+        c = int(r["count"])
+        items.append({
+            "method": r["_id"],
+            "total": round(t, 2),
+            "count": c,
+            "avg": round(t / c, 2) if c else 0,
+            "pct": round(t / grand_total * 100, 1) if grand_total > 0 else 0,
+        })
+    return {"grand_total": round(grand_total, 2), "items": items}
+
+
 @router.get("/purchases-daily")
 def purchases_daily(date: Optional[str] = None, db = Depends(get_db), _u = Depends(require_manager)):
     target = _date.fromisoformat(date) if date else _date.today()

@@ -367,12 +367,12 @@ export default function POS() {
         </div>
       </div>
 
-      {/* ═══════════ المحتوى الرئيسي: 3 أعمدة ═══════════ */}
-      <div className="flex-1 flex gap-2.5 p-2.5 min-h-0">
+      {/* ═══════════ المحتوى الرئيسي: عمودان (فاتورة 60% | منتجات 40%) ═══════════ */}
+      <div className="flex-1 flex gap-2 p-2 min-h-0">
 
-        {/* ──────────── 1. لوحة الفاتورة (يمين — أول في RTL) ──────────── */}
+        {/* ──────────── 1. لوحة الفاتورة (يمين — 60%) ──────────── */}
         <div
-          className="w-[370px] xl:w-[400px] flex-shrink-0 flex flex-col bg-slate-900 rounded-2xl border border-slate-700/60 shadow-2xl overflow-hidden"
+          className="flex-[6] min-w-[300px] max-w-[520px] flex flex-col bg-slate-900 rounded-2xl border border-slate-700/60 shadow-2xl overflow-hidden"
         >
           {/* رأس الفاتورة */}
           <div className="px-4 py-3 bg-gradient-to-l from-slate-800 to-slate-900 border-b border-slate-700/50 flex items-center justify-between flex-shrink-0">
@@ -584,45 +584,78 @@ export default function POS() {
           </div>
         </div>
 
-        {/* ──────────── 2. شبكة المنتجات (وسط) ──────────── */}
-        <div className="flex-1 flex flex-col gap-2 min-w-0">
-          {/* البحث */}
+        {/* ──────────── 2. لوحة المنتجات (يسار — 40%) ──────────── */}
+        <div className="flex-[4] min-w-0 flex flex-col gap-2">
+
+          {/* شريط المنتجات المميزة الأفقي — يُخفى إذا كان البحث نشطاً أو لا توجد منتجات مميزة */}
+          {featuredProducts.length > 0 && !query.trim() && (
+            <div className="flex-shrink-0">
+              <div className="flex items-center gap-1 px-0.5 mb-1">
+                <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">الأكثر مبيعاً</span>
+                <span className="text-[9px] text-slate-600 mr-1">({featuredProducts.length})</span>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+                {featuredProducts.map((p) => {
+                  const oos = Number(p.current_stock) <= 0;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => addToCart(p)}
+                      className={`flex-shrink-0 w-[88px] h-[56px] rounded-xl p-2 text-right border transition-all active:scale-95 relative flex flex-col justify-between
+                        ${oos
+                          ? 'bg-slate-800/30 border-rose-900/30 opacity-60'
+                          : 'bg-gradient-to-br from-amber-900/30 to-orange-900/20 hover:from-amber-800/50 border-amber-700/30 hover:border-amber-500/60'
+                        }`}
+                    >
+                      {oos && (
+                        <span className="absolute top-0.5 left-0.5 text-[7px] bg-rose-700 text-white px-1 py-0.5 rounded leading-none">نفد</span>
+                      )}
+                      <p className="text-[9px] font-bold text-slate-100 line-clamp-2 leading-snug">{p.name}</p>
+                      <p className="text-[10px] font-extrabold text-amber-400">{fmt(p.sale_price)}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* حقل البحث */}
           <div className="relative flex-shrink-0">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <Input
               ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="بحث بالاسم أو SKU..."
-              className="pr-10 h-10 bg-slate-800/80 border-slate-700/60 text-white placeholder:text-slate-500 focus:border-amber-500/60"
+              placeholder="بحث سريع — الاسم أو SKU أو الباركود..."
+              className="pr-9 h-9 text-sm bg-slate-800/80 border-slate-700/60 text-white placeholder:text-slate-500 focus:border-amber-500/60"
               data-testid="pos-search-input"
             />
             {query && (
               <button
                 onClick={() => setQuery('')}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
               >
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          {/* تسمية */}
-          <div className="flex items-center justify-between px-1 flex-shrink-0">
-            <h3 className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              {query.trim()
-                ? `نتائج البحث (${displayProducts.length})`
-                : `المنتجات المميزة (${displayProducts.length})`}
-            </h3>
-            {!query.trim() && (
-              <span className="text-[10px] text-slate-600">ابحث بالأعلى أو امسح الباركود</span>
-            )}
-          </div>
+          {/* عنوان النتائج */}
+          {(query.trim() || featuredProducts.length > 0) && (
+            <div className="flex items-center gap-1.5 px-0.5 -mb-0.5 flex-shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+              <span className="text-[10px] font-semibold text-slate-500">
+                {query.trim()
+                  ? `نتائج البحث (${displayProducts.length})`
+                  : `المنتجات المميزة (${displayProducts.length})`}
+              </span>
+            </div>
+          )}
 
           {/* شبكة المنتجات */}
           <div
-            className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 overflow-y-auto flex-1"
+            className="grid grid-cols-2 xl:grid-cols-3 gap-1.5 overflow-y-auto flex-1"
             style={{ minHeight: 0 }}
           >
             {displayProducts.map((p) => {
@@ -633,35 +666,29 @@ export default function POS() {
                   key={p.id}
                   onClick={() => addToCart(p)}
                   data-testid={`pos-product-${p.sku}`}
-                  className={`relative rounded-2xl p-3 border active:scale-95 transition-all text-right flex flex-col justify-between h-[96px] shadow-sm group
+                  className={`relative rounded-xl p-2.5 border active:scale-95 transition-all text-right flex flex-col justify-between h-[84px] shadow-sm group
                     ${outOfStock
                       ? 'bg-slate-800/30 border-rose-900/30 opacity-60'
-                      : 'bg-slate-800/70 hover:bg-slate-700/90 border-slate-700/40 hover:border-amber-500/50 hover:shadow-amber-900/20 hover:shadow-lg'
+                      : 'bg-slate-800/70 hover:bg-slate-700/90 border-slate-700/40 hover:border-amber-500/50 hover:shadow-amber-900/20 hover:shadow-md'
                     }`}
                 >
-                  {/* شارة نفاد المخزون */}
                   {outOfStock && (
-                    <span className="absolute top-1.5 left-1.5 text-[9px] bg-rose-700 text-white px-1.5 py-0.5 rounded font-bold leading-none">
-                      نفد
-                    </span>
+                    <span className="absolute top-1.5 left-1.5 text-[8px] bg-rose-700 text-white px-1 py-0.5 rounded font-bold leading-none">نفد</span>
                   )}
-                  {/* شارة مخزون منخفض */}
                   {lowStock && (
-                    <span className="absolute top-1.5 left-1.5 text-[9px] bg-amber-600 text-white px-1.5 py-0.5 rounded font-bold leading-none">
-                      قليل
-                    </span>
+                    <span className="absolute top-1.5 left-1.5 text-[8px] bg-amber-600 text-white px-1 py-0.5 rounded font-bold leading-none">قليل</span>
                   )}
-                  <p className={`font-semibold text-xs line-clamp-2 leading-snug ${outOfStock ? 'text-slate-500' : 'text-slate-100 group-hover:text-white'}`}>
+                  <p className={`font-semibold text-[11px] line-clamp-2 leading-snug ${outOfStock ? 'text-slate-500' : 'text-slate-100 group-hover:text-white'}`}>
                     {p.name}
                   </p>
                   <div className="flex justify-between items-center mt-1">
                     <span className={`font-extrabold text-sm ${outOfStock ? 'text-slate-600' : 'text-amber-400'}`}>
                       {fmt(p.sale_price)}
                     </span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold ${
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
                       outOfStock ? 'bg-rose-900/40 text-rose-400'
                       : lowStock  ? 'bg-amber-900/40 text-amber-400'
-                      : 'text-slate-500 bg-slate-700/60'
+                      : 'text-slate-500 bg-slate-700/50'
                     }`}>
                       {fmt(p.current_stock)}
                     </span>
@@ -669,52 +696,25 @@ export default function POS() {
                 </button>
               );
             })}
+
+            {/* حالة فارغة */}
             {displayProducts.length === 0 && (
-              <div className="col-span-full flex flex-col items-center justify-center text-slate-600 py-16 bg-slate-800/20 rounded-2xl border-2 border-dashed border-slate-700/40">
+              <div className="col-span-full flex flex-col items-center justify-center text-slate-600 py-10 bg-slate-800/20 rounded-xl border-2 border-dashed border-slate-700/40">
                 {query.trim() ? (
                   <>
-                    <AlertCircle className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-sm text-slate-500">لا توجد منتجات تطابق "{query}"</p>
+                    <AlertCircle className="w-8 h-8 mb-2 opacity-30" />
+                    <p className="text-sm text-slate-500">لا توجد نتائج لـ "{query}"</p>
                   </>
                 ) : (
                   <>
-                    <Star className="w-10 h-10 mb-2 opacity-20" />
-                    <p className="text-sm font-medium text-slate-500">لا توجد منتجات مميزة</p>
-                    <p className="text-xs text-slate-600 mt-1">ابحث أو امسح الباركود لإضافة منتج</p>
+                    <Search className="w-8 h-8 mb-2 opacity-20" />
+                    <p className="text-sm text-slate-500">ابحث أو امسح الباركود</p>
                   </>
                 )}
               </div>
             )}
           </div>
         </div>
-
-        {/* ──────────── 3. الشريط الجانبي المميز (يسار) ──────────── */}
-        {featuredProducts.length > 0 && (
-          <div
-            className="w-40 xl:w-48 flex-shrink-0 flex flex-col gap-2"
-            style={{ maxHeight: '100%' }}
-          >
-            <div className="flex items-center gap-1.5 px-1 flex-shrink-0">
-              <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-              <h3 className="text-xs font-bold text-slate-400">الأكثر مبيعاً</h3>
-            </div>
-            <div className="overflow-y-auto flex-1 space-y-1.5">
-              {featuredProducts.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => addToCart(p)}
-                  className="w-full bg-gradient-to-br from-amber-900/30 to-orange-900/20 hover:from-amber-800/50 hover:to-orange-800/30 border border-amber-700/30 hover:border-amber-500/60 rounded-xl p-2.5 text-right transition-all shadow-sm active:scale-95 group"
-                >
-                  <p className="font-bold text-xs text-slate-100 group-hover:text-white line-clamp-2 leading-snug mb-1.5">{p.name}</p>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[11px] font-extrabold text-amber-400">{fmt(p.sale_price)} ر.ي</span>
-                    <span className="text-[9px] text-slate-500">{fmt(p.current_stock)}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ═══════════ النوافذ المنبثقة ═══════════ */}

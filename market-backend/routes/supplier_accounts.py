@@ -240,6 +240,9 @@ def create_purchase(payload: PurchaseCreate, request: Request,
             "line_total": line_total,
         })
 
+    # لقطة رصيد التاجر قبل هذه الفاتورة
+    balance_before_snap = float(s.get("balance", 0))
+
     pur_id = new_id()
     db[C.purchases].insert_one({
         "_id": pur_id, "ref_no": ref_no, "invoice_no": ref_no,
@@ -248,6 +251,7 @@ def create_purchase(payload: PurchaseCreate, request: Request,
         "paid_amount": float(payload.paid_amount or 0),
         "payment_method": payload.payment_method,
         "notes": payload.notes, "created_by": current["_id"],
+        "balance_before": balance_before_snap,
         "created_at": now, "updated_at": now, "deleted_at": None,
     })
 
@@ -353,19 +357,48 @@ def get_purchase(purchase_id: str, db=Depends(get_db), _u=Depends(require_manage
             "available_to_return": available,
         })
 
-    sup = db[C.suppliers].find_one({"_id": p.get("supplier_id")}, {"name": 1})
+    sup = db[C.suppliers].find_one({"_id": p.get("supplier_id")}, {"name": 1, "phone": 1})
+    total = float(p.get("total", 0))
+    _pm  = p.get("payment_method", "credit")
+    _pa  = float(p.get("paid_amount") or 0)
+    _eff = _pa if (_pa > 0 or _pm == "credit") else total
+
+    # الرصيد قبل الفاتورة — مخزّن عند الإنشاء (null للفواتير القديمة)
+    balance_before = p.get("balance_before")
+    balance_after  = None
+    if balance_before is not None:
+        balance_before = float(balance_before)
+        balance_after  = balance_before + (total - _eff)
+
+    # الدفعات المرتبطة بهذه الفاتورة (عند وجود purchase_id)
+    linked_payments = []
+    for pay in db[C.supplier_payments].find({"purchase_id": p["_id"]}).sort("created_at", 1):
+        linked_payments.append({
+            "voucher_no": pay.get("voucher_no") or pay["_id"],
+            "amount": float(pay.get("amount", 0)),
+            "payment_method": pay.get("payment_method") or pay.get("method", "cash"),
+            "created_by_name": _user_name(db, pay.get("paid_by") or pay.get("created_by", "")),
+            "created_at": pay.get("created_at"),
+        })
+
     return {
         "id": p["_id"],
         "ref_no": p.get("ref_no") or p.get("invoice_no"),
         "supplier_id": p.get("supplier_id"),
         "supplier_name": sup["name"] if sup else None,
-        "total": p.get("total", 0),
-        "paid_amount": p.get("paid_amount", 0),
-        "payment_method": p.get("payment_method"),
+        "supplier_phone": sup.get("phone") if sup else None,
+        "total": total,
+        "paid_amount": _pa,
+        "effective_paid": _eff,
+        "remaining": max(0.0, total - _eff),
+        "payment_method": _pm,
         "notes": p.get("notes"),
         "created_by_name": _user_name(db, p.get("created_by", "")),
         "created_at": p.get("created_at"),
+        "balance_before": balance_before,
+        "balance_after": balance_after,
         "items": items_out,
+        "linked_payments": linked_payments,
     }
 
 

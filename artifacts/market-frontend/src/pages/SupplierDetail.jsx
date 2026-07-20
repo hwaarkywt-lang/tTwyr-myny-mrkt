@@ -1299,93 +1299,270 @@ const VoucherDialog = ({ voucher, supplier, onClose }) => {
   );
 };
 
+// ── مكوّن QR Code ─────────────────────────────────────────────────────────────
+const QRImg = ({ text, size = 72 }) => {
+  const [src, setSrc] = React.useState('');
+  React.useEffect(() => {
+    if (!text) return;
+    (async () => {
+      try {
+        const QRCode = await import('qrcode');
+        const url = await QRCode.default.toDataURL(text, {
+          width: size, margin: 1, color: { dark: '#1e293b', light: '#ffffff' },
+        });
+        setSrc(url);
+      } catch {}
+    })();
+  }, [text, size]);
+  return src
+    ? <img src={src} width={size} height={size} className="rounded border border-slate-200" alt="QR" />
+    : <div style={{ width: size, height: size }} className="bg-slate-100 rounded border border-slate-200" />;
+};
+
+// ── فاتورة التوريد / السند الاحترافي ─────────────────────────────────────────
 const VoucherBody = ({ voucher, supplier, forPrint = false }) => {
   const { kind, data } = voucher;
+  const isPurchase = kind === 'purchase';
+  const isPayment  = kind === 'payment';
+
+  const invoiceTotal = Number(data.total || data.amount || 0);
+  const paidNow      = isPurchase ? Number(data.paid_amount ?? 0) : invoiceTotal;
+  const remaining    = isPurchase ? Math.max(0, invoiceTotal - paidNow) : 0;
+  const hasBal       = isPurchase && data.balance_before != null;
+  const balBefore    = hasBal ? Number(data.balance_before) : null;
+  const balAfter     = hasBal ? Number(data.balance_after)  : null;
+
+  const accentClass = isPurchase ? 'from-rose-700 to-rose-900'
+    : isPayment ? 'from-emerald-700 to-emerald-900'
+    : 'from-orange-600 to-orange-800';
+
+  const docNo = data.ref_no || data.voucher_no || '—';
+  const createdAt = data.created_at ? new Date(data.created_at) : null;
+
   return (
-    <div className={`bg-white p-5 ${forPrint ? '' : 'border rounded-lg'}`} dir="rtl">
-      <div className="text-center mb-4 pb-3 border-b-2 border-dashed">
-        <h1 className="text-2xl font-bold">
-          {kind === 'purchase' ? 'فاتورة توريد' : kind === 'payment' ? 'سند صرف' : 'سند استرجاع'}
-        </h1>
-        <p className="text-sm text-slate-600">ميني ماركت الفنية — هاتف: 779008092</p>
-      </div>
-      <div className="space-y-1 text-sm mb-3">
-        <div className="flex justify-between"><span className="text-slate-500">رقم:</span>
-          <span className="font-mono font-bold">{data.ref_no || data.voucher_no}</span></div>
-        <div className="flex justify-between"><span className="text-slate-500">التاريخ:</span>
-          <span>{fmtDate(data.created_at)}</span></div>
-        <div className="flex justify-between"><span className="text-slate-500">التاجر:</span>
-          <span className="font-bold">{supplier.name}</span></div>
-        {kind === 'return' && data.purchase_ref && (
-          <div className="flex justify-between"><span className="text-slate-500">عن فاتورة:</span>
-            <span className="font-mono">{data.purchase_ref}</span></div>
-        )}
+    <div className={`bg-white ${forPrint ? '' : 'border rounded-lg overflow-hidden'}`} dir="rtl">
+
+      {/* ── رأس الفاتورة ── */}
+      <div className={`bg-gradient-to-l ${accentClass} text-white px-5 py-4`}>
+        <div className="flex justify-between items-start">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                <Receipt className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="font-extrabold text-base leading-none">ميني ماركت الفنية</p>
+                <p className="text-white/70 text-[11px] mt-0.5">📞 779008092</p>
+              </div>
+            </div>
+            <h1 className="text-xl font-black mt-2 tracking-tight">
+              {isPurchase ? 'فاتورة توريد' : isPayment ? 'سند صرف' : 'سند استرجاع'}
+            </h1>
+          </div>
+          <div className="text-left flex flex-col items-end gap-2">
+            <div>
+              <p className="text-white/60 text-[10px]">رقم المستند</p>
+              <p className="font-mono font-black text-lg">{docNo}</p>
+            </div>
+            <QRImg text={docNo} size={64} />
+          </div>
+        </div>
       </div>
 
-      {kind === 'purchase' && (
-        <table className="w-full border text-xs mb-3">
-          <thead className="bg-slate-100"><tr>
-            <th className="px-2 py-1 text-right">المنتج</th>
-            <th className="px-2 py-1">الكمية</th>
-            <th className="px-2 py-1">السعر</th>
-            <th className="px-2 py-1">الإجمالي</th>
-          </tr></thead>
-          <tbody>
-            {data.items.map((it) => (
-              <tr key={it.id} className="border-t">
-                <td className="px-2 py-1">{it.product_name}</td>
-                <td className="px-2 py-1 text-center">{fmt(it.quantity)}</td>
-                <td className="px-2 py-1 text-center">{fmt(it.unit_cost)}</td>
-                <td className="px-2 py-1 text-center font-semibold">{fmt(it.total)}</td>
+      {/* ── بيانات التاجر والمعاملة ── */}
+      <div className="grid grid-cols-2 gap-px bg-slate-100">
+        <div className="bg-white px-4 py-2.5">
+          <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">التاجر</p>
+          <p className="font-bold text-slate-900 text-sm">{supplier?.name || data.supplier_name || '—'}</p>
+          {(supplier?.phone || data.supplier_phone) && (
+            <p className="text-[11px] text-slate-500">📞 {supplier?.phone || data.supplier_phone}</p>
+          )}
+        </div>
+        <div className="bg-white px-4 py-2.5">
+          <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">التاريخ والوقت</p>
+          {createdAt ? (
+            <>
+              <p className="font-semibold text-slate-800 text-sm">{createdAt.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p className="text-[11px] text-slate-500">{createdAt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
+            </>
+          ) : <p className="text-slate-400 text-sm">—</p>}
+        </div>
+        <div className="bg-white px-4 py-2.5">
+          <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">الموظف</p>
+          <p className="font-semibold text-slate-800 text-sm">{data.created_by_name || '—'}</p>
+        </div>
+        <div className="bg-white px-4 py-2.5">
+          <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">طريقة الدفع / الحالة</p>
+          {data.payment_method ? (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+              data.payment_method === 'credit'
+                ? 'bg-rose-100 text-rose-700'
+                : 'bg-emerald-100 text-emerald-700'
+            }`}>
+              {data.payment_method === 'credit' ? '🔴 آجل' : `✅ ${PM[data.payment_method] || data.payment_method}`}
+            </span>
+          ) : <p className="text-slate-400 text-sm">—</p>}
+          {kind === 'return' && data.purchase_ref && (
+            <p className="text-[10px] text-slate-400 mt-0.5">عن فاتورة: <span className="font-mono">{data.purchase_ref}</span></p>
+          )}
+        </div>
+      </div>
+
+      {/* ── جدول منتجات فاتورة التوريد ── */}
+      {isPurchase && data.items?.length > 0 && (
+        <div className="border-t">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-800 text-white">
+                <th className="px-3 py-2 text-right w-6">#</th>
+                <th className="px-3 py-2 text-right">المنتج</th>
+                <th className="px-3 py-2 text-center">الكمية</th>
+                <th className="px-3 py-2 text-center">سعر الوحدة</th>
+                <th className="px-3 py-2 text-center">الإجمالي</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.items.map((it, i) => (
+                <tr key={it.id || i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                  <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                  <td className="px-3 py-2 font-semibold text-slate-800">{it.product_name}</td>
+                  <td className="px-3 py-2 text-center text-slate-700">{fmt(it.quantity)}</td>
+                  <td className="px-3 py-2 text-center text-slate-700">{fmt(it.unit_cost)} ر.ي</td>
+                  <td className="px-3 py-2 text-center font-bold text-slate-900">{fmt(it.total)} ر.ي</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      {kind === 'return' && data.items && (
-        <table className="w-full border text-xs mb-3">
-          <thead className="bg-slate-100"><tr>
-            <th className="px-2 py-1 text-right">المنتج</th>
-            <th className="px-2 py-1">الوحدة</th>
-            <th className="px-2 py-1">الكمية</th>
-            <th className="px-2 py-1">القيمة</th>
-          </tr></thead>
-          <tbody>
-            {data.items.map((it, i) => (
-              <tr key={i} className="border-t">
-                <td className="px-2 py-1">{it.product_name}</td>
-                <td className="px-2 py-1 text-center">{it.return_unit === 'carton' ? 'كراتين' : 'قطع'}</td>
-                <td className="px-2 py-1 text-center">{fmt(it.quantity)}</td>
-                <td className="px-2 py-1 text-center font-semibold">{fmt(it.total)}</td>
+      {/* ── جدول منتجات سند الاسترجاع ── */}
+      {kind === 'return' && data.items?.length > 0 && (
+        <div className="border-t">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-orange-700 text-white">
+                <th className="px-3 py-2 text-right">المنتج</th>
+                <th className="px-3 py-2 text-center">الوحدة</th>
+                <th className="px-3 py-2 text-center">الكمية</th>
+                <th className="px-3 py-2 text-center">القيمة</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.items.map((it, i) => (
+                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-orange-50/40'}>
+                  <td className="px-3 py-2 font-semibold text-slate-800">{it.product_name}</td>
+                  <td className="px-3 py-2 text-center">{it.return_unit === 'carton' ? 'كراتين' : 'قطع'}</td>
+                  <td className="px-3 py-2 text-center">{fmt(it.quantity)}</td>
+                  <td className="px-3 py-2 text-center font-bold">{fmt(it.total)} ر.ي</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      <div className={`rounded p-3 text-center mt-3 ${
-        kind === 'payment' ? 'bg-emerald-50 border-2 border-emerald-200' :
-        kind === 'return' ? 'bg-orange-50 border-2 border-orange-200' :
-        'bg-rose-50 border-2 border-rose-200'
-      }`}>
-        <p className="text-xs text-slate-600">الإجمالي</p>
-        <p className={`text-3xl font-bold ${
-          kind === 'payment' ? 'text-emerald-700' :
-          kind === 'return' ? 'text-orange-700' : 'text-rose-700'
-        }`}>{fmt(data.total || data.amount)} ر.ي</p>
-        {data.payment_method && (
-          <p className="text-xs text-slate-500 mt-1">طريقة الدفع: {PM[data.payment_method]}</p>
-        )}
-      </div>
+      {/* ── الملخص المالي (فاتورة توريد فقط) ── */}
+      {isPurchase && (
+        <div className="bg-slate-50 border-t-2 border-slate-200 px-4 py-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">الملخص المالي</p>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">إجمالي المنتجات</span>
+              <span className="font-semibold">{fmt(invoiceTotal)} ر.ي</span>
+            </div>
+            <div className="flex justify-between font-semibold border-t border-slate-200 pt-1.5">
+              <span className="text-slate-700">إجمالي الفاتورة</span>
+              <span className="text-slate-900">{fmt(invoiceTotal)} ر.ي</span>
+            </div>
+            {paidNow > 0 && (
+              <div className="flex justify-between text-emerald-700 bg-emerald-50 -mx-4 px-4 py-1.5">
+                <span>المدفوع للتاجر</span>
+                <span className="font-bold">({fmt(paidNow)} ر.ي)</span>
+              </div>
+            )}
+            {remaining > 0 && (
+              <div className="flex justify-between text-rose-700">
+                <span>المتبقي من هذه الفاتورة</span>
+                <span className="font-bold">{fmt(remaining)} ر.ي</span>
+              </div>
+            )}
+            {hasBal && (
+              <>
+                <div className="border-t border-dashed border-slate-300 my-1" />
+                <div className="flex justify-between text-slate-600">
+                  <span>الرصيد السابق للتاجر</span>
+                  <span className="font-semibold">{fmt(balBefore)} ر.ي</span>
+                </div>
+                <div className={`flex justify-between font-bold text-base -mx-4 px-4 py-2 rounded-b ${
+                  (balAfter ?? 0) > 0.01 ? 'bg-rose-100 text-rose-800' :
+                  (balAfter ?? 0) < -0.01 ? 'bg-emerald-100 text-emerald-800' :
+                  'bg-slate-100 text-slate-700'
+                }`}>
+                  <span>{(balAfter ?? 0) > 0.01 ? 'إجمالي المستحق للتاجر' : (balAfter ?? 0) < -0.01 ? 'مستحق لنا عند التاجر' : 'الرصيد مسدّد'}</span>
+                  <span className="text-lg">{fmt(Math.abs(balAfter ?? 0))} ر.ي</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
-      {data.notes && <p className="text-sm mt-3"><span className="text-slate-500">ملاحظات:</span> {data.notes}</p>}
-      {data.reason && <p className="text-sm mt-3"><span className="text-slate-500">السبب:</span> {data.reason}</p>}
+      {/* ── مبلغ إجمالي للسندات البسيطة (دفعة / استرجاع) ── */}
+      {!isPurchase && (
+        <div className={`mx-4 my-3 rounded-xl p-3 text-center border-2 ${
+          isPayment ? 'bg-emerald-50 border-emerald-200' : 'bg-orange-50 border-orange-200'
+        }`}>
+          <p className="text-xs text-slate-500 mb-0.5">المبلغ</p>
+          <p className={`text-3xl font-black ${isPayment ? 'text-emerald-700' : 'text-orange-700'}`}>
+            {fmt(invoiceTotal)} ر.ي
+          </p>
+          {data.payment_method && (
+            <p className="text-xs text-slate-400 mt-1">طريقة الدفع: {PM[data.payment_method] || data.payment_method}</p>
+          )}
+        </div>
+      )}
 
-      <div className="flex justify-between text-xs text-slate-500 pt-3 mt-3 border-t">
-        <span>الموظف: {data.created_by_name || '—'}</span>
-        <span>التوقيع: _________</span>
+      {/* ── الدفعات المرتبطة ── */}
+      {isPurchase && data.linked_payments?.length > 0 && (
+        <div className="border-t px-4 py-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">سجل الدفعات لهذه الفاتورة</p>
+          <div className="space-y-1">
+            {data.linked_payments.map((pay, i) => (
+              <div key={i} className="flex justify-between items-center text-xs bg-emerald-50 rounded px-3 py-1.5">
+                <span className="font-mono text-emerald-700">{pay.voucher_no}</span>
+                <span className="text-slate-500">{PM[pay.payment_method] || pay.payment_method}</span>
+                <span className="font-bold text-emerald-700">{fmt(pay.amount)} ر.ي</span>
+                <span className="text-slate-400">{pay.created_at ? new Date(pay.created_at).toLocaleDateString('ar-EG') : '—'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── ملاحظات / سبب ── */}
+      {(data.notes || data.reason) && (
+        <div className="px-4 py-2 border-t text-xs text-slate-600 space-y-0.5">
+          {data.notes  && <p><span className="text-slate-400">ملاحظات: </span>{data.notes}</p>}
+          {data.reason && <p><span className="text-slate-400">السبب: </span>{data.reason}</p>}
+        </div>
+      )}
+
+      {/* ── التوقيعات ── */}
+      <div className="border-t-2 border-dashed border-slate-200 mx-4 mt-2" />
+      <div className="grid grid-cols-2 gap-4 px-4 py-3 text-[10px] text-slate-400 text-center">
+        <div>
+          <p className="mb-5">توقيع المستلم</p>
+          <div className="border-b border-slate-300 w-20 mx-auto" />
+        </div>
+        <div>
+          <p className="mb-5">توقيع المسلِّم</p>
+          <div className="border-b border-slate-300 w-20 mx-auto" />
+        </div>
       </div>
+      <p className="text-center text-[9px] text-slate-300 pb-2 border-t border-slate-100 pt-1.5">
+        صدر بواسطة: {data.created_by_name || '—'} • ميني ماركت الفنية • 779008092
+      </p>
     </div>
   );
 };

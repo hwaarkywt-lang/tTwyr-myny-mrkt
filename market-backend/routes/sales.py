@@ -163,7 +163,7 @@ def create_sale(payload: SaleCreate, request: Request,
 
 @router.get("/sales", response_model=List[SaleOut])
 def list_sales(date_from: Optional[str] = None, date_to: Optional[str] = None,
-               cashier_id: Optional[str] = None, limit: int = Query(100, le=500),
+               cashier_id: Optional[str] = None, limit: int = Query(100, le=2000),
                db = Depends(get_db), current = Depends(get_current_user)):
     filt = {"deleted_at": None}
     if current.role == "cashier":

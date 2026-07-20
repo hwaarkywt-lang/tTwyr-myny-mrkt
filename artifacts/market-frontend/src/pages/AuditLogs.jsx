@@ -55,7 +55,7 @@ export default function AuditLogs() {
           <p className="text-sm text-slate-500 mt-1">سجل شامل لكل العمليات في النظام — للمدير فقط</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className="bg-rose-100 text-rose-700">عمليات أمنية: {data.items.filter(i => i.is_security).length}</Badge>
+          <Badge className="bg-rose-100 text-rose-700">عمليات أمنية: {(data?.items ?? []).filter(i => i.is_security).length}</Badge>
           <Button variant="outline" onClick={() => { setOffset(0); load(); }}>
             <RefreshCw className="w-4 h-4 ml-1" /> تحديث
           </Button>
@@ -126,10 +126,10 @@ export default function AuditLogs() {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={7} className="text-center py-8 text-slate-400">جارٍ التحميل...</td></tr>}
-              {!loading && data.items.length === 0 && (
+              {!loading && (data?.items ?? []).length === 0 && (
                 <tr><td colSpan={7} className="text-center py-8 text-slate-400">لا توجد سجلات</td></tr>
               )}
-              {data.items.map((it) => (
+              {(data?.items ?? []).map((it) => (
                 <tr key={it.id} className={`border-t ${it.is_security ? 'bg-rose-50' : ''}`}>
                   <td className="px-3 py-2 text-xs font-mono">{new Date(it.created_at).toLocaleString('ar-EG')}</td>
                   <td className="px-3 py-2">{it.user?.name || '-'}</td>

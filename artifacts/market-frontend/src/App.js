@@ -27,6 +27,7 @@ import AuditLogs from './pages/AuditLogs';
 import DayClose from './pages/DayClose';
 import Backups from './pages/Backups';
 import StockAlerts from './pages/StockAlerts';
+import Wallets from './pages/Wallets';
 
 // Layout
 import Sidebar from './components/layout/Sidebar';
@@ -139,6 +140,17 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <StockAlerts />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/wallets"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <Wallets />
                 </DashboardLayout>
               </ProtectedRoute>
             }

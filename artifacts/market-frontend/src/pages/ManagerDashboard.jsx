@@ -336,7 +336,55 @@ export default function ManagerDashboard() {
         </CardContent>
       </Card>
 
-      {/* Payment Methods */}
+      {/* ── بطاقات طرق الدفع المفصّلة ── */}
+      {data.payment_methods?.length > 0 && (() => {
+        const PM_META = [
+          { key: 'cash',          label: 'نقداً',       color: '#10b981' },
+          { key: 'jaib',          label: 'جيب',         color: '#8b5cf6' },
+          { key: 'fluusak',       label: 'فلوسك',       color: '#ec4899' },
+          { key: 'hasib',         label: 'حاسب',        color: '#3b82f6' },
+          { key: 'banki',         label: 'بنكي',        color: '#06b6d4' },
+          { key: 'bank_transfer', label: 'تحويل بنكي',  color: '#6366f1' },
+          { key: 'credit',        label: 'آجل',         color: '#f43f5e' },
+        ];
+        const grandTotal = data.payment_methods.reduce((s, p) => s + Number(p.total || 0), 0);
+        return (
+          <section>
+            <h2 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-purple-600" /> طرق الدفع تفصيلياً — هذا الشهر
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 mb-2">
+              {PM_META.map(({ key, label, color }) => {
+                const found = data.payment_methods.find((p) => p.method === key);
+                const pct = grandTotal > 0 && found ? Math.round(Number(found.total) / grandTotal * 100) : 0;
+                return (
+                  <Link key={key} to="/dashboard/wallets"
+                    className="bg-white rounded-xl border-2 border-slate-100 hover:border-slate-300 p-4 hover:shadow-md transition-all group">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                           style={{ background: color + '20' }}>
+                        <Banknote className="w-4 h-4" style={{ color }} />
+                      </div>
+                      {pct > 0 && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: color }}>
+                          {pct}%
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 font-semibold mb-1">{label}</p>
+                    <p className="text-xl font-extrabold text-slate-900">
+                      {formatMoney(found?.total || 0)}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">{found?.count || 0} عملية</p>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* Payment Methods Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardContent className="p-5">
