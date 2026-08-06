@@ -12,17 +12,17 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 def _date_range(date_from: Optional[str], date_to: Optional[str]):
     rng = {}
     if date_from:
-        rng["$gte"] = datetime.combine(_date.fromisoformat(date_from), datetime.min.time())
+        rng["$gte"] = datetime.combine(_date.fromisoformat(date_from), datetime.min.time()).replace(tzinfo=timezone.utc)
     if date_to:
-        rng["$lte"] = datetime.combine(_date.fromisoformat(date_to), datetime.max.time())
+        rng["$lte"] = datetime.combine(_date.fromisoformat(date_to), datetime.max.time()).replace(tzinfo=timezone.utc)
     return rng
 
 
 @router.get("/daily")
 def daily_sales(date: Optional[str] = None, db = Depends(get_db), _u = Depends(require_manager)):
     target = _date.fromisoformat(date) if date else _date.today()
-    start = datetime.combine(target, datetime.min.time())
-    end = datetime.combine(target, datetime.max.time())
+    start = datetime.combine(target, datetime.min.time()).replace(tzinfo=timezone.utc)
+    end = datetime.combine(target, datetime.max.time()).replace(tzinfo=timezone.utc)
     pipeline = [
         {"$match": {"created_at": {"$gte": start, "$lte": end}, "status": "completed", "deleted_at": None}},
         {"$group": {"_id": "$payment_method", "total": {"$sum": "$total"}, "count": {"$sum": 1}}},
@@ -114,8 +114,8 @@ def payment_methods_report(
 @router.get("/purchases-daily")
 def purchases_daily(date: Optional[str] = None, db = Depends(get_db), _u = Depends(require_manager)):
     target = _date.fromisoformat(date) if date else _date.today()
-    start = datetime.combine(target, datetime.min.time())
-    end = datetime.combine(target, datetime.max.time())
+    start = datetime.combine(target, datetime.min.time()).replace(tzinfo=timezone.utc)
+    end = datetime.combine(target, datetime.max.time()).replace(tzinfo=timezone.utc)
     pipeline = [
         {"$match": {"created_at": {"$gte": start, "$lte": end}, "deleted_at": None}},
         {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": 1}}},

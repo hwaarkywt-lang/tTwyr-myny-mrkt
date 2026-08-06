@@ -48,23 +48,32 @@ def _build_preview(db, target: _date) -> dict:
     total_returns = sum(float(x["total"]) for x in ret_agg)
     cash_returns  = sum(float(x["total"]) for x in ret_agg if x["_id"] == "cash")
 
-    # Expenses paid in cash
+    # Expenses paid in cash only (exclude card/bank expenses from cash box)
     exp_agg = list(db[C.expenses].aggregate([
-        {"$match": {"created_at": {"$gte": start, "$lte": end}, "deleted_at": None}},
+        {"$match": {"created_at": {"$gte": start, "$lte": end}, "deleted_at": None,
+                    "payment_method": {"$in": ["cash", None, ""]}}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]))
     expenses_paid = float(exp_agg[0]["total"]) if exp_agg else 0.0
+    # Total expenses (all methods, for the net calculation)
+    exp_total_agg = list(db[C.expenses].aggregate([
+        {"$match": {"created_at": {"$gte": start, "$lte": end}, "deleted_at": None}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]))
+    total_expenses_all = float(exp_total_agg[0]["total"]) if exp_total_agg else 0.0
 
-    # Supplier payments
+    # Supplier payments in cash only
     sp_agg = list(db[C.supplier_payments].aggregate([
-        {"$match": {"created_at": {"$gte": start, "$lte": end}}},
+        {"$match": {"created_at": {"$gte": start, "$lte": end},
+                    "payment_method": {"$in": ["cash", None, ""]}}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]))
     supplier_paid = float(sp_agg[0]["total"]) if sp_agg else 0.0
 
-    # Customer receipts
+    # Customer receipts in cash only
     cp_agg = list(db[C.customer_payments].aggregate([
-        {"$match": {"created_at": {"$gte": start, "$lte": end}}},
+        {"$match": {"created_at": {"$gte": start, "$lte": end},
+                    "payment_method": {"$in": ["cash", None, ""]}}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]))
     customer_receipts = float(cp_agg[0]["total"]) if cp_agg else 0.0
@@ -90,7 +99,7 @@ def _build_preview(db, target: _date) -> dict:
         "sales_count": sales_count,
         "total_returns": round(total_returns, 2),
         "total_expenses": round(expenses_paid, 2),
-        "net": round(total_sales - expenses_paid - total_returns, 2),
+        "net": round(total_sales - total_expenses_all - total_returns, 2),
         "by_payment": by_payment,
     }
 

@@ -91,17 +91,22 @@ def create_sale(payload: SaleCreate, request: Request,
     subtotal = Decimal("0")
     item_docs = []
     for it in payload.items:
-        line_total = Decimal(str(it.quantity)) * Decimal(str(it.unit_price))
+        # Apply per-item discount & tax
+        line_pre_discount = Decimal(str(it.quantity)) * Decimal(str(it.unit_price))
+        line_discount = (line_pre_discount * Decimal(str(it.discount)) / Decimal("100")) if it.discount else Decimal("0")
+        line_tax = ((line_pre_discount - line_discount) * Decimal(str(it.tax)) / Decimal("100")) if it.tax else Decimal("0")
+        line_total = line_pre_discount - line_discount + line_tax
         subtotal += line_total
         item_docs.append({
             "_id": new_id(), "sale_id": sale_id,
             "product_id": it.product_id,
             "quantity": float(it.quantity), "unit_price": float(it.unit_price),
-            "discount": 0.0, "tax": 0.0, "total": float(line_total),
+            "discount": float(it.discount), "tax": float(it.tax),
+            "total": float(round(line_total, 4)),
             "created_at": now,
         })
 
-    total = subtotal
+    total = round(subtotal, 2)
     if payload.payment_method == "credit":
         paid_amount = Decimal("0")
         change_amount = Decimal("0")
@@ -113,8 +118,17 @@ def create_sale(payload: SaleCreate, request: Request,
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="العميل غير موجود")
     else:
-        paid_amount = total
-        change_amount = Decimal("0")
+        # Use tendered amount if provided; otherwise assume exact payment
+        if payload.tendered_amount is not None:
+            tendered = Decimal(str(payload.tendered_amount))
+            if tendered < total:
+                raise HTTPException(status_code=400,
+                                    detail=f"المبلغ المدفوع ({float(tendered):.2f}) أقل من الإجمالي ({float(total):.2f})")
+            paid_amount = tendered
+            change_amount = round(tendered - total, 2)
+        else:
+            paid_amount = total
+            change_amount = Decimal("0")
 
     sale_doc = {
         "_id": sale_id, "invoice_no": invoice_no,

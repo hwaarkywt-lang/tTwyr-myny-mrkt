@@ -58,6 +58,7 @@ export default function POS() {
   const [now, setNow]                           = useState(new Date());
   const [heldInvoices, setHeldInvoices]         = useState(loadHeld);
   const [showHeldDialog, setShowHeldDialog]     = useState(false);
+  const [tenderedAmount, setTenderedAmount]     = useState('');
   const barcodeRef = useRef(null);
   const searchRef  = useRef(null);
 
@@ -169,7 +170,13 @@ export default function POS() {
     } else {
       setCart((prev) => {
         const c = [...prev];
-        c[idx] = { ...c[idx], quantity: q };
+        const item = c[idx];
+        const maxQty = item.stock ?? Infinity;
+        const clampedQ = Math.min(q, maxQty);
+        if (clampedQ < q) {
+          toast({ title: '⚠️ تجاوز الكمية المتاحة', description: `الحد الأقصى المتاح: ${fmt(maxQty)}`, variant: 'destructive' });
+        }
+        c[idx] = { ...item, quantity: clampedQ };
         return c;
       });
     }
@@ -217,10 +224,13 @@ export default function POS() {
     saveHeld(updated);
   };
 
-  const total = cart.reduce((s, it) => s + it.quantity * it.unit_price, 0);
+  const total = Math.round(cart.reduce((s, it) => s + it.quantity * it.unit_price, 0) * 100) / 100;
+  const tendered = parseFloat(tenderedAmount) || 0;
+  const change = paymentMethod === 'cash' && tendered > 0 ? Math.max(0, Math.round((tendered - total) * 100) / 100) : 0;
 
   const onPaymentSelect = (method) => {
     setPaymentMethod(method);
+    setTenderedAmount('');
     if (method === 'credit') {
       if (cart.length === 0) {
         toast({ title: 'أضف منتجاً أولاً قبل اختيار آجل', variant: 'destructive' });
@@ -244,6 +254,14 @@ export default function POS() {
     if (paymentMethod === 'credit' && !creditCustomer) {
       toast({ title: 'يجب اختيار عميل للبيع الآجل', variant: 'destructive' }); return;
     }
+    // Validate cash tender
+    if (paymentMethod === 'cash' && tenderedAmount !== '') {
+      const t = parseFloat(tenderedAmount);
+      if (isNaN(t) || t < total) {
+        toast({ title: '⚠️ المبلغ المُسلَّم أقل من الإجمالي', description: `الإجمالي: ${fmt(total)} ر.ي`, variant: 'destructive' });
+        return;
+      }
+    }
     setLoading(true);
     try {
       const payload = {
@@ -252,16 +270,21 @@ export default function POS() {
           product_id: c.product_id, quantity: c.quantity, unit_price: c.unit_price,
         })),
         payment_method: paymentMethod,
+        tendered_amount: paymentMethod === 'cash' && tenderedAmount !== '' ? parseFloat(tenderedAmount) : undefined,
       };
       const { data } = await api.post('/sales', payload);
       setLastInvoice(data);
+      const changeAmt = Number(data.change_amount || 0);
       toast({
         title: '✅ تم إتمام البيع',
-        description: `فاتورة ${data.invoice_no} — ${fmt(data.total)} ر.ي`,
+        description: changeAmt > 0
+          ? `فاتورة ${data.invoice_no} — الفكة: ${fmt(changeAmt)} ر.ي`
+          : `فاتورة ${data.invoice_no} — ${fmt(data.total)} ر.ي`,
       });
       setCart([]);
       setCreditCustomer(null);
       setPaymentMethod('cash');
+      setTenderedAmount('');
       api.get('/pos/products', { params: { featured_only: true, limit: 200 } })
         .then((r) => setFeaturedProducts(r.data)).catch(() => {});
       barcodeRef.current?.focus();
@@ -514,6 +537,32 @@ export default function POS() {
                 })}
               </div>
             </div>
+
+            {/* المبلغ المُسلَّم والفكة — للدفع النقدي فقط */}
+            {paymentMethod === 'cash' && cart.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-slate-500 font-semibold tracking-wide">المبلغ المُسلَّم (اختياري)</p>
+                <input
+                  type="number"
+                  value={tenderedAmount}
+                  onChange={(e) => setTenderedAmount(e.target.value)}
+                  placeholder={`${fmt(total)} ر.ي أو أكثر`}
+                  step="0.01"
+                  min={total}
+                  className="w-full h-8 text-center text-sm font-bold bg-slate-800/60 text-white rounded-xl border border-slate-600/60 focus:outline-none focus:border-amber-500 placeholder:text-slate-600"
+                  data-testid="pos-tendered-amount"
+                />
+                {tendered > 0 && change >= 0 && (
+                  <div className={`flex justify-between items-center px-3 py-1.5 rounded-lg text-xs font-bold ${change > 0 ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300' : 'bg-slate-700/50 text-slate-400'}`}>
+                    <span>الفكة</span>
+                    <span data-testid="pos-change">{fmt(change)} ر.ي</span>
+                  </div>
+                )}
+                {tendered > 0 && tendered < total && (
+                  <p className="text-[10px] text-rose-400 text-center">⚠️ المبلغ أقل من الإجمالي</p>
+                )}
+              </div>
+            )}
 
             {/* معلومات العميل الآجل */}
             {paymentMethod === 'credit' && (

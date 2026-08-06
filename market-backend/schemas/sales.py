@@ -19,6 +19,7 @@ class SaleCreate(BaseModel):
     shift_id: Optional[str] = None
     items: List[SaleItemIn] = Field(..., min_length=1)
     payment_method: str = "cash"
+    tendered_amount: Optional[Decimal] = None  # المبلغ المُسلَّم من الزبون (نقداً)
     notes: Optional[str] = None
 
 

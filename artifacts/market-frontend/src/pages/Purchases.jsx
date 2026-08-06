@@ -48,7 +48,8 @@ const Suppliers = () => {
     catch (e) { toast({ title: 'خطأ', description: formatApiError(e), variant: 'destructive' }); }
   };
 
-  const totalDue = items.reduce((s, x) => s + Number(x.balance || 0), 0);
+  // نجمع فقط الأرصدة الموجبة (المستحقة للتجار) ونستثني الأرصدة الدائنة
+  const totalDue = items.reduce((s, x) => s + Math.max(0, Number(x.balance || 0)), 0);
 
   return (
     <div className="p-6 lg:p-8" dir="rtl" data-testid="suppliers-page">

@@ -46,6 +46,11 @@ export default function DayClose() {
       toast({ title: 'أدخل النقد الفعلي المعدود', variant: 'destructive' });
       return;
     }
+    const computedVariance = Number(actualCash) - Number(preview?.expected_cash || 0);
+    if (computedVariance !== 0 && !notes.trim()) {
+      toast({ title: 'الملاحظات إجبارية عند وجود فارق', description: 'فسّر سبب الفارق في خانة الملاحظات', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/day-closes', {
@@ -155,7 +160,7 @@ export default function DayClose() {
                 {history.length === 0 && <tr><td colSpan={6} className="text-center py-4 text-slate-400">لا يوجد سجل</td></tr>}
                 {history.map((d) => (
                   <tr key={d.id} className="border-t">
-                    <td className="px-3 py-2 font-medium">{d.business_date}</td>
+                    <td className="px-3 py-2 font-medium">{d.close_date}</td>
                     <td className="px-3 py-2">{money(d.expected_cash)}</td>
                     <td className="px-3 py-2 font-bold">{money(d.actual_cash)}</td>
                     <td className={`px-3 py-2 font-bold ${d.variance === 0 ? 'text-emerald-600' : d.variance > 0 ? 'text-blue-600' : 'text-rose-600'}`}>

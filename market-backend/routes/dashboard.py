@@ -345,13 +345,15 @@ def manager_dashboard(db = Depends(get_db), _u = Depends(require_manager)):
         "least_selling": least_selling,
     }
 
-    # Returns summary — pending/approved/rejected counts + today/month totals
+    # Returns summary — only approved returns for financial totals
     returns_today_agg = list(db[C.sale_returns].aggregate([
-        {"$match": {"created_at": {"$gte": today_start, "$lte": today_end}, "deleted_at": None}},
+        {"$match": {"created_at": {"$gte": today_start, "$lte": today_end},
+                    "status": "approved", "deleted_at": None}},
         {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": 1}}},
     ]))
     returns_month_agg = list(db[C.sale_returns].aggregate([
-        {"$match": {"created_at": {"$gte": month_start, "$lt": month_end}, "deleted_at": None}},
+        {"$match": {"created_at": {"$gte": month_start, "$lt": month_end},
+                    "status": "approved", "deleted_at": None}},
         {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": 1}}},
     ]))
     returns = {
