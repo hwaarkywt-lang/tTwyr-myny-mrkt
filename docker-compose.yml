@@ -33,13 +33,27 @@ services:
     depends_on:
       - postgres
 
+  backend:
+    build:
+      context: ./market-backend
+    container_name: market-backend
+    restart: unless-stopped
+    env_file:
+      - ./market-backend/.env
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+    volumes:
+      - ./market-backend:/app
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "5000"]
+
 volumes:
   mongo_data:
   postgres_data:
 
 # Usage:
 # 1. Copy market-backend/.env.example -> market-backend/.env and adjust values if needed.
-# 2. Run: docker compose up -d
-# 3. Start the Python app (example):
-#    pip install -r market-backend/requirements.txt
-#    uvicorn market-backend.server:app --reload --port 5000
+# 2. Run: docker compose up -d --build
+# 3. The compose file now includes the backend service; the backend will be available at http://localhost:5000
+# 4. If you prefer to run the backend outside Docker for development, follow steps in replit.md
