@@ -52,6 +52,7 @@ from routes.audit import router as audit_router
 from routes.day_close import router as day_close_router
 from routes.system import router as system_router
 from routes.dashboard import router as dashboard_router
+from routes.batches import router as batches_router
 
 app.include_router(auth_router)
 app.include_router(users_router)
@@ -70,6 +71,7 @@ app.include_router(audit_router)
 app.include_router(day_close_router)
 app.include_router(system_router)
 app.include_router(dashboard_router)
+app.include_router(batches_router)
 
 
 @app.get("/api/")

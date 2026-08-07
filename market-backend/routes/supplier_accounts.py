@@ -269,6 +269,36 @@ def create_purchase(payload: PurchaseCreate, request: Request,
             "total": it["line_total"],
             "returned_quantity": 0,
         })
+
+        # ── Create inventory batch record ─────────────────────────────────────
+        from models import new_id as _nid
+        batch_count = db[C.product_batches].count_documents({
+            "batch_no": {"$regex": f"^BATCH-{today}-"}
+        })
+        batch_no = f"BATCH-{today}-{batch_count + 1:05d}"
+        sup_name = s.get("name", "")
+        units_per_carton = float(it.get("pieces_per_carton") or 1)
+        db[C.product_batches].insert_one({
+            "_id": _nid(),
+            "batch_no": batch_no,
+            "product_id": it["product_id"],
+            "purchase_id": pur_id,
+            "purchase_item_id": pi_id,
+            "supplier_id": payload.supplier_id,
+            "supplier_name": sup_name,
+            "purchase_date": now,
+            "unit_cost": float(it["unit_cost"]),
+            "carton_cost": float(it["carton_cost"]) if it.get("carton_cost") else None,
+            "units_per_carton": units_per_carton if it.get("pieces_per_carton") else None,
+            "sale_price": float(it["sale_price"]) if it.get("sale_price") else 0.0,
+            "original_qty": float(it["quantity"]),
+            "remaining_qty": float(it["quantity"]),
+            "is_exhausted": False,
+            "created_at": now,
+            "updated_at": now,
+        })
+        # ─────────────────────────────────────────────────────────────────────
+
         upd = {"$inc": {"current_stock": it["quantity"]}, "$set": {"updated_at": now}}
         if it.get("sale_price"):
             upd["$set"]["sale_price"] = it["sale_price"]

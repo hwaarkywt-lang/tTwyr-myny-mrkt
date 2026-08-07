@@ -126,5 +126,12 @@ def init_indexes():
         db[C.audit_logs].create_index([("created_at", DESCENDING)])
         db[C.notifications].create_index([("user_id", ASCENDING), ("read", ASCENDING)])
         db[C.day_closes].create_index([("close_date", ASCENDING)], unique=True)
+        # Batch inventory indexes
+        db[C.product_batches].create_index([("product_id", ASCENDING), ("purchase_date", ASCENDING)])
+        db[C.product_batches].create_index([("supplier_id", ASCENDING)])
+        db[C.product_batches].create_index([("is_exhausted", ASCENDING)])
+        db[C.product_batches].create_index([("batch_no", ASCENDING)], unique=True, sparse=True)
+        db[C.sale_items].create_index([("unit_cost", ASCENDING)])
+        db[C.sale_items].create_index([("created_at", DESCENDING)])
     except Exception as e:
         logger.warning(f"Index creation skipped: {e}")

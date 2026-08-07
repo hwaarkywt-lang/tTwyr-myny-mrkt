@@ -19,6 +19,74 @@ VALID_PAYMENT_METHODS = {"cash", "jaib", "fluusak", "hasib", "banki",
                           "bank_transfer", "credit", "card"}
 
 
+# ─── Batch FIFO/LIFO helpers ────────────────────────────────────────────────
+
+def _get_valuation_method(db) -> str:
+    s = db[C.settings].find_one({"key": "inventory_valuation_method"})
+    return (s["value"] if s else "fifo")
+
+
+def _get_batch_unit_cost(db, product_id: str, qty: float, method: str = "fifo") -> float:
+    """Read-only pass: calculate the weighted-average unit cost using batch FIFO/LIFO.
+    Falls back to product.cost_price when no batch data exists."""
+    sort_dir = 1 if method != "lifo" else -1
+    batches = list(db[C.product_batches].find(
+        {"product_id": product_id,
+         "remaining_qty": {"$gt": 0},
+         "is_exhausted": {"$ne": True}},
+    ).sort("purchase_date", sort_dir))
+
+    if not batches:
+        prod = db[C.products].find_one({"_id": product_id}, {"cost_price": 1})
+        return float(prod.get("cost_price", 0)) if prod else 0.0
+
+    remaining = qty
+    total_cost = 0.0
+    for b in batches:
+        if remaining <= 0.001:
+            break
+        avail = float(b.get("remaining_qty", 0))
+        take = min(avail, remaining)
+        total_cost += take * float(b.get("unit_cost", 0))
+        remaining -= take
+    return (total_cost / qty) if qty > 0 else 0.0
+
+
+def _apply_batch_deductions(db, product_id: str, qty: float, method: str, now) -> list:
+    """Write pass: atomically deduct qty from batches in FIFO/LIFO order.
+    Returns list of deduction records for audit trail."""
+    sort_dir = 1 if method != "lifo" else -1
+    batches = list(db[C.product_batches].find(
+        {"product_id": product_id,
+         "remaining_qty": {"$gt": 0},
+         "is_exhausted": {"$ne": True}},
+    ).sort("purchase_date", sort_dir))
+
+    remaining = qty
+    deductions = []
+    for b in batches:
+        if remaining <= 0.001:
+            break
+        avail = float(b.get("remaining_qty", 0))
+        if avail <= 0:
+            continue
+        take = min(avail, remaining)
+        new_rem = avail - take
+        db[C.product_batches].update_one(
+            {"_id": b["_id"]},
+            {"$inc": {"remaining_qty": -take},
+             "$set": {"is_exhausted": new_rem <= 0.001, "updated_at": now}},
+        )
+        deductions.append({
+            "batch_id":  b["_id"],
+            "batch_no":  b.get("batch_no", ""),
+            "qty_taken": take,
+            "unit_cost": float(b.get("unit_cost", 0)),
+        })
+        remaining -= take
+    return deductions
+
+
 def _generate_invoice_no(db) -> str:
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     prefix = f"INV-{today}-"
@@ -88,6 +156,16 @@ def create_sale(payload: SaleCreate, request: Request,
     invoice_no = _generate_invoice_no(db)
     sale_id = new_id()
 
+    # Determine inventory valuation method (FIFO / LIFO / Specific)
+    valuation_method = _get_valuation_method(db)
+
+    # Pre-compute unit_cost per item using batch lookup (read-only pass)
+    item_unit_costs = {}
+    for it in payload.items:
+        item_unit_costs[it.product_id] = _get_batch_unit_cost(
+            db, it.product_id, float(it.quantity), valuation_method
+        )
+
     subtotal = Decimal("0")
     item_docs = []
     for it in payload.items:
@@ -97,12 +175,16 @@ def create_sale(payload: SaleCreate, request: Request,
         line_tax = ((line_pre_discount - line_discount) * Decimal(str(it.tax)) / Decimal("100")) if it.tax else Decimal("0")
         line_total = line_pre_discount - line_discount + line_tax
         subtotal += line_total
+        unit_cost = item_unit_costs.get(it.product_id, 0.0)
+        gross_profit = float(round(line_total, 4)) - unit_cost * float(it.quantity)
         item_docs.append({
             "_id": new_id(), "sale_id": sale_id,
             "product_id": it.product_id,
             "quantity": float(it.quantity), "unit_price": float(it.unit_price),
             "discount": float(it.discount), "tax": float(it.tax),
             "total": float(round(line_total, 4)),
+            "unit_cost": unit_cost,
+            "gross_profit": round(gross_profit, 4),
             "created_at": now,
         })
 
@@ -145,8 +227,8 @@ def create_sale(payload: SaleCreate, request: Request,
     db[C.sales].insert_one(sale_doc)
     db[C.sale_items].insert_many(item_docs)
 
-    # Decrement product stock + inventory movements
-    for it in payload.items:
+    # Decrement product stock + inventory movements + FIFO batch deductions
+    for idx, it in enumerate(payload.items):
         db[C.products].update_one({"_id": it.product_id},
                                   {"$inc": {"current_stock": -float(it.quantity)},
                                    "$set": {"updated_at": now}})
@@ -158,6 +240,15 @@ def create_sale(payload: SaleCreate, request: Request,
             "user_id": current["_id"], "notes": f"Sale {invoice_no}",
             "created_at": now,
         })
+        # Deduct from batches (FIFO/LIFO) and store audit trail in sale_item
+        batch_deductions = _apply_batch_deductions(
+            db, it.product_id, float(it.quantity), valuation_method, now
+        )
+        if batch_deductions:
+            db[C.sale_items].update_one(
+                {"_id": item_docs[idx]["_id"]},
+                {"$set": {"batch_deductions": batch_deductions}},
+            )
 
     if payload.payment_method != "credit":
         db[C.sale_payments].insert_one({
