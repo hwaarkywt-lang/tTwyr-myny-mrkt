@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:6
+    container_name: market-mongo
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_DATABASE=market_db
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  postgres:
+    image: postgres:15
+    container_name: market-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=workspace_user
+      - POSTGRES_PASSWORD=workspace_pass
+      - POSTGRES_DB=workspace_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  mongo_data:
+  postgres_data:
+
+# Usage:
+# 1. Copy market-backend/.env.example -> market-backend/.env and adjust values if needed.
+# 2. Run: docker compose up -d
+# 3. Start the Python app (example):
+#    pip install -r market-backend/requirements.txt
+#    uvicorn market-backend.server:app --reload --port 5000
