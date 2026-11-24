@@ -56,7 +56,7 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 librt==0.11.0
 # Private packages moved to requirements-private.txt (not included in CI)
-Mako==1.3.12
+Mako==1.4.2
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mccabe==0.7.0
